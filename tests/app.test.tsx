@@ -55,6 +55,7 @@ describe('interfaz privada con backend simulado exclusivamente en pruebas', ()=>
     mock.login.mockResolvedValue({error:{message:'Invalid login credentials'}})
     render(<App/> )
     await screen.findByRole('heading',{name:'Acceso personal'})
+    visualSnapshot('acceso')
     expect(screen.queryByText('Panel diario')).toBeNull()
     fireEvent.change(screen.getByLabelText('Correo electrónico'),{target:{value:'ficticio@example.com'}})
     fireEvent.change(screen.getByLabelText('Contraseña'),{target:{value:'solo-prueba'}})

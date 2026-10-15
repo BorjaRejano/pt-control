@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
+import { Brand } from './Brand'
 import { dashboard, validateDescription, csvCell } from './domain'
 import {
   Activity, Archive, ArrowRight, Calendar, CalendarClock, CalendarDays,
@@ -62,7 +63,7 @@ function AuthScreen({ onSignIn, initialError }: { onSignIn: (email: string, pass
   }
   return <div className="auth-page">
     <div className="auth-box">
-      <div className="brand big-brand"><span className="brand-icon"><ClipboardList size={22}/></span><span><strong>PT CONTROL</strong><small>Gestión y seguimiento de permisos</small></span></div>
+      <Brand/>
       <div className="auth-icon"><LockKeyhole size={26}/></div>
       <h1>Acceso personal</h1><p>Introduce tus credenciales para consultar y actualizar tus permisos de trabajo.</p>
       <form onSubmit={submit} className="auth-form">
@@ -77,7 +78,7 @@ function AuthScreen({ onSignIn, initialError }: { onSignIn: (email: string, pass
 }
 function NoConfig() {
   return <div className="auth-page"><div className="auth-box">
-    <div className="brand big-brand"><span className="brand-icon"><ClipboardList/></span><strong>PT CONTROL</strong></div>
+    <Brand/>
     <div className="auth-icon"><Database/></div>
     <h1>Falta conectar la base de datos</h1>
     <p>El proyecto todavía no tiene configuradas las variables de entorno de Supabase. Consulta <code>README.md</code> y crea tu archivo <code>.env.local</code>.</p>
@@ -350,7 +351,7 @@ export default function App() {
   }
 
   return <div className="app">
-    <header className="topbar"><div className="top-main"><div className="brand"><span className="brand-icon"><ClipboardList size={21}/></span><div><strong>PT CONTROL</strong><small>Gestión y planificación de permisos</small></div></div>
+    <header className="topbar"><div className="top-main"><Brand compact/>
       <div className="top-actions"><span className="today-label">{longDate(today)}</span><button className="primary" onClick={() => openWork()}><Plus size={16}/> Nuevo trabajo</button><button className="icon-button inverted" onClick={() => void logout()} title="Cerrar sesión" aria-label="Cerrar sesión"><LogOut size={18}/></button></div>
     </div></header>
     <div className="tabs-bar"><nav className="tabs" aria-label="Secciones">{nav.map(({id,name,icon:Icon}) => <button key={id} className={`navtab ${view===id?'selected':''}`} onClick={() => { setView(id); setFilter('todos'); setSearch('') }}><Icon size={17}/>{name}</button>)}</nav></div>

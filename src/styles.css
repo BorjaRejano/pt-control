@@ -18,3 +18,5 @@
 .brand-logo-full{width:min(160px,100%);margin:0 auto 20px}.logo-frame{display:block;position:relative;overflow:hidden;aspect-ratio:1170/770;background:#fff}.logo-frame img{position:absolute;width:107.1795%;height:auto;max-width:none;left:-3.4188%;top:-35.065%;display:block}.logo-mark{display:block;flex:0 0 auto;background:#fff;padding:4px 5px;border-radius:6px}.logo-mark .logo-frame{width:44px;aspect-ratio:1130/520}.logo-mark .logo-frame img{width:110.9735%;left:-5.3097%;top:-50%}.logo-brand{gap:11px}.auth-box .brand-logo-full+.auth-icon{margin-top:2px}
 @media(max-width:760px){.logo-mark .logo-frame{width:38px}.logo-mark{padding:4px}.logo-brand{gap:8px}}
 @media(max-width:440px){.logo-brand strong{font-size:13px;letter-spacing:.3px}.logo-mark .logo-frame{width:32px}.logo-brand{gap:7px}.brand-logo-full{width:min(150px,100%);margin-bottom:18px}}
+/* Variante de marca para la cabecera oscura, con canal alfa real. */
+.logo-mark,.logo-mark .logo-frame{background:transparent}.logo-mark .logo-frame img{position:static;width:100%;height:100%;max-width:100%;object-fit:contain}

@@ -1,0 +1,31 @@
+{
+  "name": "pt-control",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "npm run test:domain && npm run test:ui",
+    "test:domain": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:ui": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
+    "@testing-library/react": "^16.3.3",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "jsdom": "^28.1.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.0",
+    "vitest": "^5.0.5"
+  }
+}

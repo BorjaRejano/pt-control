@@ -58,6 +58,37 @@ test('atrasados excluye hoy, mañana, sin fecha, archivados y finalizados',()=>{
   const rows=[work({id:'ayer',fecha_programada:'2026-10-15'}),work({id:'hoy',fecha_programada:'2026-10-16'}),work({id:'mañana',fecha_programada:'2026-10-17'}),work({id:'sinfecha'}),work({id:'archivado',fecha_programada:'2026-10-10',archivado:true}),work({id:'final',fecha_programada:'2026-10-10',estado:'finalizado'})]
   assert.deepEqual(dashboard(rows,'2026-10-16').overdue.map(w=>w.id),['ayer'])
 })
+test('panel separa fechas pasadas, hoy y futuras con los estados solicitados',()=>{
+  const rows=[
+    work({id:'pasado-pendiente',fecha_programada:'2026-10-15'}),
+    work({id:'pasado-emitido',fecha_programada:'2026-10-14',estado:'emitido'}),
+    work({id:'pasado-ejecucion',fecha_programada:'2026-10-13',estado:'ejecucion'}),
+    work({id:'año-anterior',fecha_programada:'2016-11-03'}),
+    work({id:'hoy',fecha_programada:'2026-10-16'}),
+    work({id:'sabado',fecha_programada:'2026-10-17'}),
+    work({id:'mes-siguiente',fecha_programada:'2026-11-03',estado:'emitido'}),
+    work({id:'ejecucion-futura',fecha_programada:'2026-11-04',estado:'ejecucion'}),
+    work({id:'sin-fecha'}),
+    work({id:'final-pasado',fecha_programada:'2026-10-10',estado:'finalizado'}),
+    work({id:'archivo-pasado',fecha_programada:'2026-10-10',archivado:true}),
+    work({id:'final-futuro',fecha_programada:'2026-11-10',estado:'finalizado'}),
+    work({id:'archivo-futuro',fecha_programada:'2026-11-10',archivado:true}),
+  ]
+  const p=dashboard(rows,'2026-10-16')
+  assert.deepEqual(p.overdue.map(w=>w.id),['año-anterior','pasado-ejecucion','pasado-emitido','pasado-pendiente'])
+  assert.deepEqual(p.todayJobs.map(w=>w.id),['hoy'])
+  assert.deepEqual(p.upcoming.map(w=>w.id),['sabado','mes-siguiente'])
+  assert.deepEqual(p.unplanned.map(w=>w.id),['sin-fecha'])
+})
+
+test('ampliaciones recolocan por fecha vigente y mantienen la referencia si falta fecha',()=>{
+  const rows=[work({id:'ampliado-futuro',estado:'ejecucion',fecha_programada:'2026-10-10'}),work({id:'ampliado-pasado',fecha_programada:'2026-11-10'}),work({id:'pendiente-fecha',fecha_programada:'2026-10-14'})]
+  const ex=[extension({id:'futuro',trabajo_id:'ampliado-futuro',fecha_ampliacion:'2026-11-05'}),extension({id:'pasado',trabajo_id:'ampliado-pasado',fecha_ampliacion:'2026-10-15'}),extension({id:'incompleta',trabajo_id:'pendiente-fecha',fecha_ampliacion:null,numero_ampliacion:null})]
+  const p=dashboard(rows,'2026-10-16',ex)
+  assert.deepEqual(p.upcoming.map(w=>w.id),['ampliado-futuro'])
+  assert.deepEqual(p.overdue.map(w=>w.id),['pendiente-fecha','ampliado-pasado'])
+})
+
 test('las fechas de varias ampliaciones recolocan el permiso una sola vez',()=>{
   const rows=[extension({id:'one',fecha_ampliacion:'2026-10-17'}),extension({id:'two',fecha_ampliacion:'2026-10-19',created_at:'2026-10-16T11:00:00Z'})]
   const p=dashboard([work({fecha_programada:'2026-10-14'})],'2026-10-16',rows)

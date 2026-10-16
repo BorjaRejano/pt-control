@@ -137,7 +137,7 @@ El workflow usa `npm ci`, ejecuta las pruebas y comprueba la configuración ante
 ### Validación de esta revisión
 
 - Dependencias instaladas y fijadas en `package-lock.json`; compilación de React/TypeScript/Vite comprobada.
-- `npm test`: 33 pruebas (16 de dominio/configuración, 1 de base de datos y 16 de interfaz).
+- `npm test`: 36 pruebas (18 de dominio/configuración, 1 de base de datos y 17 de interfaz).
 - PostgreSQL temporal mediante PGlite: ejecución de ambas migraciones, conservación de registros al aplicar `002`, relaciones, ampliaciones, historial de cambios simultáneos, archivo reversible, metadatos protegidos, denegación de acceso anónimo y aislamiento entre dos usuarios. El entorno de prueba reproduce `auth.uid()` y omite únicamente la instalación de `pgcrypto`, porque el motor ya incluye `gen_random_uuid()`.
 - Interfaz mediante React Testing Library y un backend simulado solo en los tests: acceso privado, formularios, validación, guardado, errores sin falso éxito, filtros, calendario, ampliaciones y bloqueo de backups si falla la carga.
 - Revisión visual en navegador de panel, registro, calendario y formulario con capturas estáticas de datos ficticios a resoluciones de escritorio y móvil. Estas capturas no prueban persistencia ni autenticación real.

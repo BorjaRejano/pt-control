@@ -49,18 +49,24 @@ export function isArchived(work: Trabajo): boolean { return work.archivado || wo
 export function stateChange(work: Trabajo, estado: Status) { return { estado, archivado: estado === 'finalizado' || work.archivado } }
 export function dashboard(records: Trabajo[], today: string, extensions: Ampliacion[] = []) {
   const active = records.filter(w => !isArchived(w))
-  const nextDay = nextWorkingDay(today)
-  const date = (w: Trabajo) => permitInfo(w, extensions).date
+  const info = new Map(active.map(w => [w.id, permitInfo(w, extensions)]))
+  const date = (w: Trabajo) => info.get(w.id)!.date
+  const byDate = (a: Trabajo, b: Trabajo) => date(a)!.localeCompare(date(b)!) || a.id.localeCompare(b.id)
   return {
-    active, nextDay,
+    active,
     unplanned: active.filter(w => !date(w)),
     pending: active.filter(w => w.estado === 'pendiente'),
     issued: active.filter(w => w.estado === 'emitido'),
     executing: active.filter(w => w.estado === 'ejecucion'),
     finished: records.filter(w => w.estado === 'finalizado'),
     todayJobs: active.filter(w => date(w) === today),
-    upcoming: active.filter(w => date(w) === nextDay),
-    overdue: active.filter(w => !!date(w) && date(w)! < today).sort((a,b) => date(a)!.localeCompare(date(b)!)),
+    upcoming: active.filter(w => {
+      const p = info.get(w.id)!
+      return !!p.date && p.date > today
+        && (w.estado === 'pendiente' || w.estado === 'emitido' || !!p.latest)
+    }).sort(byDate),
+    overdue: active.filter(w => !!date(w) && date(w)! < today
+      && ['pendiente', 'emitido', 'ejecucion'].includes(w.estado)).sort(byDate),
   }
 }
 export type SortKey = 'fecha_programada' | 'numero_permiso' | 'descripcion' | 'zona' | 'estado'

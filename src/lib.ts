@@ -53,7 +53,7 @@ export interface Historial {
 
 export function shortDate(iso?: string | null): string {
   if (!iso) return 'Sin fecha'
-  return new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short' }).format(new Date(`${iso}T12:00:00`))
+  return new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${iso}T12:00:00`))
 }
 export function longDate(iso: string): string {
   return new Intl.DateTimeFormat('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(`${iso}T12:00:00`))

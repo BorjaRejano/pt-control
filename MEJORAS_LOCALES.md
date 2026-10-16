@@ -12,7 +12,7 @@ Esta revisión se desarrolla únicamente en local. No se ha subido ni desplegado
 6. Número y fecha de ampliación son opcionales. Las ampliaciones incompletas reciben fondo rojizo y avisos textuales. Completar una existente utiliza UPDATE; no crea otra fila.
 7. Eliminar está disponible en tarjetas, registro, archivo y ficha, con confirmación que identifica el permiso y advierte que se borrarán también ampliaciones, comentarios e historial. Solo se elimina después de confirmar. Las FK existentes mantienen la cascada sin huérfanos.
 8. La cabecera y la navegación forman una barra sticky; los diálogos quedan por encima y retienen el foco. Se comprueba escritorio y móvil.
-9. Próximos trabajos muestra exclusivamente el siguiente día de lunes a viernes. No existe configuración de festivos en el proyecto; no se añade una. Viernes, sábado y domingo apuntan al lunes.
+9. Próximos trabajos muestra todas las fechas vigentes o de referencia posteriores a hoy, ordenadas por fecha, para permisos pendientes, emitidos o con ampliaciones. Incluye fines de semana y fechas posteriores al siguiente día laboral; excluye archivados y finalizados. Los trabajos en ejecución solo aparecen en próximos si tienen ampliaciones. Las fechas visibles incluyen el año para distinguir trabajos de años anteriores.
 10. El calendario muestra dos semanas consecutivas, de lunes a domingo, con número y año ISO. Parte de la semana actual, permite avanzar/retroceder una semana y volver con Hoy. Muestra cada permiso activo una sola vez en la fecha vigente o de referencia. En móvil, cada semana tiene desplazamiento horizontal propio.
 11. Registro, archivo y CSV comparten `filterWorks`. CSV recibe todos los resultados filtrados y ordenados, sin limitarse a filas visibles. No hay paginación visual; `fetchAll` sigue recuperando todas las páginas de la API. Incluye BOM UTF-8, separador punto y coma, fechas DD/MM/AAAA, encabezados españoles y protección frente a fórmulas de Excel. Incluye referencias originales, ampliaciones y avisos. La copia JSON continúa siendo completa, independiente de los filtros.
 12. Atrasados exige trabajo activo, no finalizado, con fecha vigente anterior a hoy. No existe fecha de vencimiento separada: se usa la programada o la última fecha conocida de ampliación. Una ampliación a hoy/futuro lo retira de atrasados; una posterior pendiente conserva la referencia y los avisos. Los días se comparan en formato calendario y el día actual se obtiene en Europe/Madrid.
@@ -49,3 +49,9 @@ Sin aplicar la 003, la interfaz podrá consultar los datos existentes, pero Supa
 - `supabase/migrations/003_planificacion_ampliaciones.sql` y los tres archivos de pruebas en `tests/`.
 
 Ejecutar en esta carpeta: `npm ci` si es necesario y `npm run dev`. Las vistas `.qa/` son capturas estáticas generadas por las pruebas, no la aplicación interactiva. Utiliza la raíz de localhost para trabajar.
+
+## Corrección de fechas autorizada el 16 de octubre de 2026
+
+El usuario confirmó que las fechas de 2016 debían ser de 2026. Se corrigieron cinco fechas originales desde la interfaz, conservando día, mes y estado: una del 13/10, dos del 15/10 y dos del 14/11. Otras seis fechas de noviembre ya constaban como 2026 al iniciar esta revisión. Las dos fechas de ampliaciones existentes también eran de 2026.
+
+Tras recargar, el registro completo mostró 18 permisos y ninguna fecha vigente de 2016. El panel local, con la nueva clasificación, mostró 3 atrasados (15/10/2026), 2 de hoy (16/10/2026), 8 próximos (noviembre de 2026), 4 sin fecha y 1 finalizado conservado en Archivados. Evidencia local ignorada por Git: `.qa/panel-fechas-2026-verificado.png`. Los cambios de datos se guardaron en Supabase; las modificaciones de código de esta revisión siguen locales.

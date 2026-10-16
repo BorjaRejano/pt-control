@@ -65,6 +65,30 @@ beforeEach(()=>{
 afterEach(()=>{cleanup();vi.restoreAllMocks();vi.unstubAllGlobals()})
 
 describe('flujos completos con backend simulado solo en pruebas',()=>{
+  it('clasifica el panel por fecha vigente, estado y ampliaciones y muestra el año',async()=>{
+    const today=localToday()
+    mock.records=[
+      work({id:'pasado',descripcion:'Pasado pendiente',fecha_programada:addDays(today,-1)}),
+      work({id:'emitido-pasado',descripcion:'Pasado emitido',fecha_programada:addDays(today,-2),estado:'emitido'}),
+      work({id:'ejecucion-pasada',descripcion:'Pasado en ejecución',fecha_programada:addDays(today,-3),estado:'ejecucion'}),
+      work({id:'hoy',descripcion:'Trabajo de hoy',fecha_programada:today}),
+      work({id:'futuro',descripcion:'Futuro pendiente',fecha_programada:addDays(today,1)}),
+      work({id:'lejano',descripcion:'Futuro emitido',fecha_programada:addDays(today,45),estado:'emitido'}),
+      work({id:'ampliado',descripcion:'Futuro ampliado',fecha_programada:addDays(today,-7),estado:'ejecucion'}),
+      work({id:'ejecucion',descripcion:'Ejecución futura sin ampliar',fecha_programada:addDays(today,2),estado:'ejecucion'}),
+      work({id:'final',descripcion:'Finalizado excluido',fecha_programada:addDays(today,-1),estado:'finalizado'}),
+      work({id:'archivo',descripcion:'Archivado excluido',fecha_programada:addDays(today,1),archivado:true}),
+    ] as unknown as Record<string,unknown>[]
+    mock.extensions=[extension({trabajo_id:'ampliado',fecha_ampliacion:addDays(today,10)})]
+    await showApp()
+    const section=(name:string)=>within(screen.getByRole('heading',{name,exact:true}).closest('section')!)
+    const descriptions=(name:string)=>section(name).getAllByRole('button',{name:/^Abrir /}).map(b=>b.getAttribute('aria-label'))
+    expect(descriptions('Trabajos con fecha anterior aún abiertos')).toEqual(['Abrir Pasado en ejecución','Abrir Pasado emitido','Abrir Pasado pendiente'])
+    expect(descriptions('Trabajos de hoy')).toEqual(['Abrir Trabajo de hoy'])
+    expect(descriptions('Próximos trabajos')).toEqual(['Abrir Futuro pendiente','Abrir Futuro ampliado','Abrir Futuro emitido'])
+    expect(section('Próximos trabajos').getByRole('button',{name:'Abrir Futuro emitido'}).textContent).toContain(addDays(today,45).slice(0,4))
+    visualSnapshot('panel-fechas')
+  })
   it('protege las vistas e informa de credenciales incorrectas',async()=>{
     mock.session=null;mock.login.mockResolvedValue({error:{message:'Invalid login credentials'}})
     render(<App/>);await screen.findByRole('heading',{name:'Acceso personal'});visualSnapshot('acceso')

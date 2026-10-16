@@ -32,9 +32,10 @@ export interface Trabajo {
 export interface Ampliacion {
   id: string
   trabajo_id: string
-  numero_ampliacion: string
-  fecha_ampliacion: string
+  numero_ampliacion: string | null
+  fecha_ampliacion: string | null
   observaciones: string | null
+  created_at: string
 }
 export interface Comentario {
   id: string

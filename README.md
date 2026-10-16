@@ -1,5 +1,7 @@
 # PT CONTROL · Versión 1.0
 
+**Revisión del 16 de octubre:** consulta [MEJORAS_LOCALES.md](MEJORAS_LOCALES.md) y [VALIDACION_003.md](VALIDACION_003.md). Incluye ampliaciones pendientes/editables, archivado y eliminación. Las ampliaciones y el borrado se han comprobado desde la app local contra Supabase. Para otras instalaciones se requiere la migración `003_planificacion_ampliaciones.sql`.
+
 Aplicación personal de seguimiento de trabajos y permisos industriales. Interfaz en español (panel diario, calendario semanal, registro filtrable, archivo), acceso protegido y datos reales en PostgreSQL/Supabase. Cada instalación necesita su propio proyecto Supabase y usuario; las credenciales locales y los registros no se incluyen en este repositorio.
 
 Repositorio: [BorjaRejano/pt-control](https://github.com/BorjaRejano/pt-control). Dirección de publicación: [PT CONTROL](https://borjarejano.github.io/pt-control/).
@@ -13,19 +15,19 @@ Repositorio: [BorjaRejano/pt-control](https://github.com/BorjaRejano/pt-control)
 - Estados: **pendiente**, **emitido**, **en ejecución**, **finalizado**. La condición de **ampliado NO es un estado**, sino un registro adicional.
 - Varias ampliaciones por trabajo, conservando los números y fechas de cada una.
 - Comentarios con fecha y hora; historial generado por triggers de la base de datos.
-- Calendario semanal, filtros combinables por estado, rango de fechas, número, empresa, zona, descripción, ampliaciones y archivo; buscador y columnas ordenables.
+- Calendario de dos semanas con números ISO, filtros combinables por estado, rango de fechas, número, empresa, zona, descripción, ampliaciones y archivo; buscador y columnas ordenables.
 - Fechas de referencia y horas del historial en `Europe/Madrid`. Actualización al guardar, recuperar el foco y cada minuto mientras la sesión está abierta.
 - Descarga CSV (Excel) y copia JSON con trabajos, ampliaciones, comentarios e historial.
 - Todas las tablas exigen usuario autenticado y tienen políticas RLS. No se sube información de permisos al repositorio de GitHub.
 
-**Fuera del alcance de v1:** importación automática de Excel, varios días de ejecución para un mismo trabajo, adjuntos, envío de correos, informes PDF, restauración automatizada del backup JSON, edición/eliminación de ampliaciones/comentarios, notificaciones y permisos de varios usuarios.
+**Fuera del alcance de v1:** importación automática de Excel, varios días de ejecución para un mismo trabajo, adjuntos, envío de correos, informes PDF, restauración automatizada del backup JSON, eliminación individual de ampliaciones/comentarios, notificaciones y permisos de varios usuarios.
 
 ## 2. Cómo preparar Supabase (una sola vez)
 
 > **Importante:** antes de usar información de tu empresa, confirma que está autorizado almacenarla en una nube externa. Para las primeras pruebas utiliza únicamente permisos ficticios.
 
 1. Crea un proyecto en [https://supabase.com/dashboard](https://supabase.com/dashboard). Conserva la contraseña administrativa fuera del repositorio.
-2. Dentro del proyecto, entra en **SQL Editor → New query**. Ejecuta `supabase/migrations/001_pt_control.sql` **una sola vez** y después `supabase/migrations/002_integridad_historial.sql`. Se crean 4 tablas, índices, triggers de historial y políticas de seguridad. Si ya aplicaste `001`, ejecuta únicamente `002`: conserva tablas y registros y mejora el historial y la protección de metadatos. No vuelvas a ejecutar `001` sobre una instalación existente.
+2. Dentro del proyecto, entra en **SQL Editor → New query**. Ejecuta `supabase/migrations/001_pt_control.sql` **una sola vez** y después `supabase/migrations/002_integridad_historial.sql` y `supabase/migrations/003_planificacion_ampliaciones.sql`. Se crean 4 tablas, índices, triggers de historial y políticas de seguridad. Si ya aplicaste `001`, ejecuta únicamente las migraciones posteriores que falten, en orden. No vuelvas a ejecutar `001` sobre una instalación existente.
 3. En **Authentication → Users → Add user**, crea tu único usuario manualmente, con correo y contraseña si aparece la opción **Create new user**. Confirma el email según la configuración del proyecto. Si el panel solo ofrece invitaciones, sigue el procedimiento de invitación y definición de contraseña en la interfaz oficial de Supabase (puede requerir configurar URLs de redirección).
 4. En **Authentication** configura **Allow new users to sign up = OFF** y mantén desactivados los accesos anónimos. El proyecto de ejemplo no ofrece botón de registro. Al desactivar nuevos registros solo se permiten cuentas ya existentes.
 5. En **Project Settings → API Keys** copia la **publishable key** (`sb_publishable_...`). Si tu proyecto únicamente ofrece una clave pública heredada `anon`, también sirve. **Nunca utilices la clave `service_role` o `secret` en esta web.** Copia asimismo la URL del proyecto (Project URL).
@@ -112,7 +114,7 @@ El workflow usa `npm ci`, ejecuta las pruebas y comprueba la configuración ante
 
 ## 5. Copias de seguridad y recuperación
 
-- **CSV Excel:** desde Registro, botón `CSV Excel`, exporta todos los trabajos (incluidos archivados) y sus números de ampliación, independientemente de los filtros visibles. Incluye BOM UTF-8, separador `;` y protección frente a fórmulas de Excel.
+- **CSV Excel:** desde Registro, botón `CSV Excel`, exporta los resultados filtrados y ordenados de la vista actual, con el número y fecha vigentes, los datos originales y el historial de ampliaciones. Incluye BOM UTF-8, separador `;` y protección frente a fórmulas de Excel.
 - **Copia JSON:** desde Registro, botón `Copia JSON`. Incluye las cuatro tablas y metadatos del registro. **No incluye contraseñas ni credenciales.** Es una exportación de datos, pero **v1 aún no tiene una herramienta de restauración automática desde ese JSON**.
 - El plan gratuito de Supabase no ofrece las mismas opciones de backup y restauración de planes de pago. Para proteger tus datos realiza exportaciones periódicas y conserva los archivos en una ubicación privada y aprobada. Las copias descargadas contienen información que podría ser sensible.
 - Para una copia completa restaurable de PostgreSQL se debe usar una estrategia de backups de base de datos adecuada, por ejemplo Supabase CLI `db dump`; consulta la documentación oficial.
@@ -135,7 +137,7 @@ El workflow usa `npm ci`, ejecuta las pruebas y comprueba la configuración ante
 ### Validación de esta revisión
 
 - Dependencias instaladas y fijadas en `package-lock.json`; compilación de React/TypeScript/Vite comprobada.
-- `npm test`: 17 pruebas (8 de dominio/configuración, 1 de base de datos y 8 de interfaz).
+- `npm test`: 33 pruebas (16 de dominio/configuración, 1 de base de datos y 16 de interfaz).
 - PostgreSQL temporal mediante PGlite: ejecución de ambas migraciones, conservación de registros al aplicar `002`, relaciones, ampliaciones, historial de cambios simultáneos, archivo reversible, metadatos protegidos, denegación de acceso anónimo y aislamiento entre dos usuarios. El entorno de prueba reproduce `auth.uid()` y omite únicamente la instalación de `pgcrypto`, porque el motor ya incluye `gen_random_uuid()`.
 - Interfaz mediante React Testing Library y un backend simulado solo en los tests: acceso privado, formularios, validación, guardado, errores sin falso éxito, filtros, calendario, ampliaciones y bloqueo de backups si falla la carga.
 - Revisión visual en navegador de panel, registro, calendario y formulario con capturas estáticas de datos ficticios a resoluciones de escritorio y móvil. Estas capturas no prueban persistencia ni autenticación real.

@@ -1,146 +1,188 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { Blob as NodeBlob } from 'node:buffer'
 import App from '../src/App'
 import { localToday, type Trabajo } from '../src/lib'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { addDays, isoWeek, mondayOf } from '../src/domain'
 
-function visualSnapshot(name: string) {
-  if (!process.env.PT_QA_EXPORT) return
+function visualSnapshot(name:string){
+  if(!process.env.PT_QA_EXPORT)return
   mkdirSync('.qa',{recursive:true})
-  const css=readFileSync('src/styles.css','utf8')
-  writeFileSync(`.qa/${name}.html`,`<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PT CONTROL · Prueba visual</title><style>${css}</style><body><div style="background:#fff0e1;padding:8px;text-align:center;font:12px Arial">PRUEBA VISUAL · Datos ficticios · Captura estática sin guardado</div>${document.body.innerHTML}</body></html>`)
+  writeFileSync(`.qa/${name}.html`,`<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PT CONTROL · Prueba visual</title><style>${readFileSync('src/styles.css','utf8')}</style><body><div style="padding:8px;background:#fff0e1;text-align:center;font:12px Arial">PRUEBA VISUAL · Datos ficticios · Sin guardado</div>${document.body.innerHTML}</body></html>`)
 }
-
-const mock = vi.hoisted(() => ({
-  session: null as unknown,
-  records: [] as unknown[],
-  extensions: [] as unknown[],
-  fetch: vi.fn(), insert: vi.fn(), update: vi.fn(), login: vi.fn(),
-}))
-vi.mock('../src/lib', async original => {
-  const actual = await original<typeof import('../src/lib')>()
-  return { ...actual, configured: true, fetchAll: mock.fetch, supabase: {
-    auth: {
-      getSession: async () => ({data:{session:mock.session},error:null}),
-      onAuthStateChange: () => ({data:{subscription:{unsubscribe:vi.fn()}}}),
-      signInWithPassword: mock.login,
-      signOut: async () => ({error:null}),
+const mock=vi.hoisted(()=>({session:null as unknown,records:[] as Record<string,unknown>[],extensions:[] as Record<string,unknown>[],comments:[] as Record<string,unknown>[],history:[] as Record<string,unknown>[],writes:[] as Record<string,unknown>[],failNext:null as string|null,fetchFail:false,counter:0,blob:null as unknown,fetch:vi.fn(),login:vi.fn()}))
+vi.mock('../src/lib',async original=>{
+  const actual=await original<typeof import('../src/lib')>()
+  return {...actual,configured:true,fetchAll:mock.fetch,supabase:{
+    auth:{getSession:async()=>({data:{session:mock.session},error:null}),onAuthStateChange:()=>({data:{subscription:{unsubscribe:vi.fn()}}}),signInWithPassword:mock.login,signOut:async()=>({error:null})},
+    from:(table:string)=>{
+      let op='',payload:Record<string,unknown>={},conditions:Record<string,unknown>={}
+      const store=()=>table==='trabajos'?mock.records:table==='ampliaciones'?mock.extensions:mock.comments
+      const query={
+        insert:(data:Record<string,unknown>)=>{op='insert';payload=data;return query},
+        update:(data:Record<string,unknown>)=>{op='update';payload=data;return query},
+        delete:()=>{op='delete';return query},
+        eq:(key:string,value:unknown)=>{conditions[key]=value;return query},
+        select:()=>query,
+        single:async()=>{
+          mock.writes.push({table,op,payload:{...payload},conditions:{...conditions}})
+          if(mock.failNext){const message=mock.failNext;mock.failNext=null;return {data:null,error:{message}}}
+          const rows=store(),index=rows.findIndex(row=>Object.entries(conditions).every(([key,value])=>row[key]===value))
+          if(op==='insert'){
+            const data={id:`insert-${++mock.counter}`,created_at:`${localToday()}T23:50:${String(mock.counter).padStart(2,'0')}Z`,...(table==='trabajos'?{user_id:'test',archivado:false,updated_at:'',zona:null,empresa:null,notas:null}:{}),...payload}
+            rows.unshift(data)
+            return {data,error:null}
+          }
+          if(index<0)return {data:null,error:{message:'No se encontró el registro'}}
+          if(op==='delete'){
+            const [data]=rows.splice(index,1)
+            mock.extensions=mock.extensions.filter(e=>e.trabajo_id!==data.id);mock.comments=mock.comments.filter(e=>e.trabajo_id!==data.id);mock.history=mock.history.filter(e=>e.trabajo_id!==data.id)
+            return {data,error:null}
+          }
+          rows[index]={...rows[index],...payload}
+          if(table==='trabajos'&&rows[index].estado==='finalizado')rows[index].archivado=true
+          return {data:rows[index],error:null}
+        },
+      }
+      return query
     },
-    from: () => ({insert:mock.insert, update:mock.update}),
   }}
 })
-
-function work(fields: Partial<Trabajo> = {}): Trabajo {
-  return {id:'ficticio-1',user_id:'test',descripcion:'Trabajo ficticio de prueba',numero_permiso:null,fecha_programada:null,estado:'pendiente',empresa:'Empresa ficticia A',zona:'Zona ficticia A',notas:null,archivado:false,created_at:'2026-10-15T09:00:00Z',updated_at:'2026-10-15T09:00:00Z',...fields}
-}
-async function showApp() {
-  render(<App/> )
-  await screen.findByRole('heading',{name:'Panel diario'})
-  await waitFor(()=>expect(mock.fetch).toHaveBeenCalledWith('trabajos'))
-  await waitFor(()=>expect(screen.queryByText('Sincronizando datos…')).toBeNull())
-}
+function work(fields:Partial<Trabajo>={}):Trabajo{return {id:'ficticio-1',user_id:'test',descripcion:'Trabajo ficticio de prueba',numero_permiso:'FICTICIO-ORIGINAL',fecha_programada:null,estado:'pendiente',empresa:'Empresa ficticia A',zona:'Zona ficticia A',notas:null,archivado:false,created_at:`${localToday()}T09:00:00Z`,updated_at:'',...fields}}
+const extension=(fields:Record<string,unknown>={})=>({id:'amp-1',trabajo_id:'ficticio-1',numero_ampliacion:'AMP-ANTERIOR',fecha_ampliacion:localToday(),created_at:`${addDays(localToday(),-1)}T09:00:00Z`,observaciones:null,...fields})
+async function showApp(){render(<App/>);await screen.findByRole('heading',{name:'Panel diario'});await waitFor(()=>expect(mock.fetch).toHaveBeenCalledWith('trabajos'));await waitFor(()=>expect(screen.queryByText('Sincronizando datos…')).toBeNull())}
+function submit(buttonName:string){fireEvent.submit(screen.getByRole('button',{name:buttonName,exact:true}).closest('form')!)}
 beforeEach(()=>{
-  mock.session = {user:{id:'test'}}
-  mock.records = [work()]
-  mock.extensions = []
-  mock.fetch.mockImplementation(async table => table==='trabajos'?mock.records:table==='ampliaciones'?mock.extensions:[])
-  mock.insert.mockResolvedValue({error:null})
+  mock.session={user:{id:'test'}};mock.records=[work() as unknown as Record<string,unknown>];mock.extensions=[];mock.comments=[];mock.history=[];mock.writes=[];mock.failNext=null;mock.fetchFail=false;mock.counter=0;mock.blob=null
+  mock.fetch.mockImplementation(async table=>{if(mock.fetchFail)throw new Error('Failed to fetch');return table==='trabajos'?[...mock.records]:table==='ampliaciones'?[...mock.extensions]:table==='comentarios'?[...mock.comments]:[...mock.history]})
   mock.login.mockResolvedValue({error:null})
+  Object.defineProperty(URL,'createObjectURL',{configurable:true,value:vi.fn(blob=>{mock.blob=blob;return 'blob:test'})})
+  Object.defineProperty(URL,'revokeObjectURL',{configurable:true,value:vi.fn()})
+  vi.stubGlobal('Blob',NodeBlob)
+  vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{})
 })
-afterEach(cleanup)
+afterEach(()=>{cleanup();vi.restoreAllMocks();vi.unstubAllGlobals()})
 
-describe('interfaz privada con backend simulado exclusivamente en pruebas', ()=>{
-  it('protege el panel y comunica credenciales incorrectas', async ()=>{
-    mock.session=null
-    mock.login.mockResolvedValue({error:{message:'Invalid login credentials'}})
-    render(<App/> )
-    await screen.findByRole('heading',{name:'Acceso personal'})
-    visualSnapshot('acceso')
-    expect(screen.queryByText('Panel diario')).toBeNull()
-    fireEvent.change(screen.getByLabelText('Correo electrónico'),{target:{value:'ficticio@example.com'}})
-    fireEvent.change(screen.getByLabelText('Contraseña'),{target:{value:'solo-prueba'}})
-    fireEvent.submit(screen.getByRole('button',{name:/Entrar en PT CONTROL/}).closest('form')!)
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent','El correo o la contraseña no son correctos.')
+describe('flujos completos con backend simulado solo en pruebas',()=>{
+  it('protege las vistas e informa de credenciales incorrectas',async()=>{
+    mock.session=null;mock.login.mockResolvedValue({error:{message:'Invalid login credentials'}})
+    render(<App/>);await screen.findByRole('heading',{name:'Acceso personal'});visualSnapshot('acceso')
+    fireEvent.change(screen.getByLabelText('Correo electrónico'),{target:{value:'ficticio@example.com'}});fireEvent.change(screen.getByLabelText('Contraseña'),{target:{value:'solo-prueba'}})
+    submit('Entrar en PT CONTROL')
+    expect((await screen.findByRole('alert')).textContent).toContain('correo o la contraseña')
     expect(mock.fetch).not.toHaveBeenCalled()
   })
-  it('rechaza descripciones vacías y guarda trabajos sin fecha ni número',async()=>{
-    await showApp()
-    fireEvent.click(screen.getByRole('button',{name:'Nuevo trabajo'}))
-    const dialog = screen.getByRole('dialog')
-    const input = within(dialog).getByLabelText('Descripción del trabajo *')
-    visualSnapshot('formulario')
-    fireEvent.change(input,{target:{value:'   '}})
-    fireEvent.submit(input.closest('form')!)
-    expect(within(dialog).getByRole('alert').textContent).toContain('Introduce una descripción')
-    expect(mock.insert).not.toHaveBeenCalled()
-    fireEvent.change(input,{target:{value:'Prueba sin programar'}})
-    fireEvent.submit(input.closest('form')!)
-    await screen.findByRole('status')
-    expect(mock.insert).toHaveBeenCalledWith(expect.objectContaining({descripcion:'Prueba sin programar',fecha_programada:null,numero_permiso:null,estado:'pendiente'}))
-  })
-  it('conserva el formulario y muestra el error real si falla el guardado',async()=>{
-    mock.insert.mockResolvedValue({error:{message:'duplicate key value violates unique constraint'}})
-    await showApp()
-    fireEvent.click(screen.getByRole('button',{name:'Nuevo trabajo'}))
+  it('valida descripción y guarda un trabajo sin número ni fecha',async()=>{
+    await showApp();fireEvent.click(screen.getByRole('button',{name:'Nuevo trabajo'}))
     const input=screen.getByLabelText('Descripción del trabajo *')
-    fireEvent.change(input,{target:{value:'Prueba con error'}})
-    fireEvent.submit(input.closest('form')!)
-    expect((await screen.findByRole('alert')).textContent).toContain('ya está registrado')
-    expect(screen.queryByRole('status')).toBeNull()
-    expect(screen.getByRole('dialog')).toBeTruthy()
-    expect((input as HTMLInputElement).value).toBe('Prueba con error')
-  })
-  it('muestra cinco contadores y mantiene los finalizados de hoy',async()=>{
-    mock.records=[work(),work({id:'finalizado',descripcion:'Finalizado ficticio de hoy',fecha_programada:localToday(),estado:'finalizado'})]
-    await showApp()
-    expect(screen.getByRole('button',{name:/Finalizados\s*1/})).toBeTruthy()
-    expect(screen.getByRole('button',{name:'Abrir Finalizado ficticio de hoy'})).toBeTruthy()
-    visualSnapshot('panel')
-  })
-  it('combina filtros de empresa, fecha, descripción y ampliación',async()=>{
-    mock.records=[work(),work({id:'ficticio-2',descripcion:'Trabajo futuro ficticio',empresa:'Empresa ficticia B',fecha_programada:'2026-11-01'})]
-    mock.extensions=[{id:'extension-1',trabajo_id:'ficticio-2',numero_ampliacion:'FICTICIO-AMP',fecha_ampliacion:'2026-11-01'}]
-    await showApp()
-    fireEvent.click(screen.getByRole('button',{name:'Registro',exact:true}))
-    fireEvent.change(screen.getByLabelText('Empresa'),{target:{value:'Empresa ficticia B'}})
-    fireEvent.change(screen.getByLabelText('Desde'),{target:{value:'2026-11-01'}})
-    fireEvent.change(screen.getByLabelText('Descripción'),{target:{value:'futuro'}})
-    fireEvent.click(screen.getByLabelText('Solo ampliados'))
-    expect(screen.getByText('Trabajo futuro ficticio')).toBeTruthy()
-    expect(screen.queryByText('Trabajo ficticio de prueba')).toBeNull()
-    fireEvent.click(screen.getByRole('button',{name:'Limpiar filtros'}))
-    expect(screen.getByText('Trabajo ficticio de prueba')).toBeTruthy()
-    visualSnapshot('registro')
-  })
-  it('añade ampliaciones sin modificar el trabajo original',async()=>{
-    mock.records=[work({numero_permiso:'FICTICIO-ORIGINAL',estado:'ejecucion'})]
-    await showApp()
-    fireEvent.click(screen.getByRole('button',{name:'Abrir Trabajo ficticio de prueba'}))
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'Ampliaciones'}))
-    fireEvent.change(screen.getByLabelText('Nº ampliación *'),{target:{value:'FICTICIO-AMP'}})
-    fireEvent.submit(screen.getByRole('button',{name:'Añadir ampliación'}).closest('form')!)
+    fireEvent.change(input,{target:{value:'   '}});submit('Guardar trabajo')
+    expect(screen.getByRole('alert').textContent).toContain('Introduce una descripción');expect(mock.writes).toHaveLength(0)
+    fireEvent.change(input,{target:{value:'Trabajo nuevo ficticio'}});visualSnapshot('formulario');submit('Guardar trabajo')
     await screen.findByRole('status')
-    expect(mock.insert).toHaveBeenCalledWith(expect.objectContaining({trabajo_id:'ficticio-1',numero_ampliacion:'FICTICIO-AMP'}))
-    expect(mock.update).not.toHaveBeenCalled()
+    expect(mock.records.find(w=>w.descripcion==='Trabajo nuevo ficticio')).toMatchObject({numero_permiso:null,fecha_programada:null,estado:'pendiente',archivado:false})
   })
-  it('informa del fallo de conexión y bloquea copias incompletas',async()=>{
-    mock.fetch.mockRejectedValue(new Error('Failed to fetch'))
-    render(<App/> )
-    expect((await screen.findByRole('alert')).textContent).toContain('No se pudo conectar con Supabase')
-    fireEvent.click(screen.getByRole('button',{name:'Registro',exact:true}))
-    expect((screen.getByRole('button',{name:'Copia JSON'}) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByRole('button',{name:'Reintentar'})).toBeTruthy()
+  it('no comunica éxito y conserva el formulario cuando falla un guardado',async()=>{
+    await showApp();fireEvent.click(screen.getByRole('button',{name:'Nuevo trabajo'}))
+    fireEvent.change(screen.getByLabelText('Descripción del trabajo *'),{target:{value:'Prueba con error'}});mock.failNext='duplicate key';submit('Guardar trabajo')
+    expect((await screen.findByRole('alert')).textContent).toContain('ya está registrado');expect(screen.queryByRole('status')).toBeNull();expect(screen.getByRole('dialog')).toBeTruthy()
   })
-  it('navega semanas y permite abrir trabajos del calendario',async()=>{
-    mock.records=[work({fecha_programada:localToday()})]
-    await showApp()
-    fireEvent.click(screen.getByRole('button',{name:'Calendario',exact:true}))
-    expect(screen.getByRole('button',{name:/SIN Nº.*Trabajo ficticio/})).toBeTruthy()
-    visualSnapshot('calendario')
-    fireEvent.click(screen.getByTitle('Semana siguiente'))
-    expect(screen.queryByRole('button',{name:/SIN Nº.*Trabajo ficticio/})).toBeNull()
-    fireEvent.click(screen.getByRole('button',{name:'Hoy',exact:true}))
-    fireEvent.click(screen.getByRole('button',{name:/SIN Nº.*Trabajo ficticio/}))
-    expect(screen.getByRole('dialog')).toBeTruthy()
+  it('finalizar desde la tarjeta archiva y se mantiene al volver a cargar',async()=>{
+    await showApp();fireEvent.change(screen.getByLabelText('Estado de Trabajo ficticio de prueba'),{target:{value:'finalizado'}})
+    expect((await screen.findByRole('status')).textContent).toContain('finalizado y archivado')
+    expect(mock.records[0]).toMatchObject({estado:'finalizado',archivado:true})
+    expect(screen.queryByRole('button',{name:'Abrir Trabajo ficticio de prueba'})).toBeNull()
+    cleanup();await showApp();expect(screen.queryByRole('button',{name:'Abrir Trabajo ficticio de prueba'})).toBeNull()
+    fireEvent.click(screen.getByRole('button',{name:'Archivados',exact:true}));expect(screen.getByText('Trabajo ficticio de prueba')).toBeTruthy()
+  })
+  it('finalizar desde la ficha también archiva',async()=>{
+    await showApp();fireEvent.click(screen.getByRole('button',{name:'Abrir Trabajo ficticio de prueba'}))
+    fireEvent.change(screen.getByLabelText('Estado del permiso'),{target:{value:'finalizado'}});submit('Guardar trabajo')
+    await screen.findByRole('status');expect(mock.records[0]).toMatchObject({estado:'finalizado',archivado:true})
+  })
+  it('cancelar ampliación conserva el borrador y cerrar diálogos anidados libera el scroll',async()=>{
+    await showApp();fireEvent.click(screen.getByRole('button',{name:'Abrir Trabajo ficticio de prueba'}))
+    fireEvent.change(screen.getByLabelText('Descripción del trabajo *'),{target:{value:'Borrador sin guardar'}})
+    fireEvent.change(screen.getByLabelText('Estado del permiso'),{target:{value:'ampliar'}})
+    fireEvent.click(within(screen.getByRole('dialog',{name:'Nueva ampliación'})).getByRole('button',{name:'Cancelar',exact:true}))
+    expect((screen.getByLabelText('Descripción del trabajo *') as HTMLInputElement).value).toBe('Borrador sin guardar')
+    expect(mock.writes).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button',{name:'Eliminar permiso',exact:true}))
+    fireEvent.click(screen.getByRole('button',{name:'Eliminar definitivamente'}))
+    await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(()=>expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(document.body.style.overflow).toBe('')
+  })
+  it('cancelar Ampliado no altera el estado ni crea ampliaciones',async()=>{
+    await showApp();fireEvent.change(screen.getByLabelText('Estado de Trabajo ficticio de prueba'),{target:{value:'ampliar'}})
+    expect(screen.getByRole('dialog',{name:'Nueva ampliación'})).toBeTruthy()
+    fireEvent.click(screen.getByRole('button',{name:'Cancelar',exact:true}))
+    expect(mock.writes).toHaveLength(0);expect(mock.extensions).toHaveLength(0);expect(mock.records[0].estado).toBe('pendiente')
+  })
+  it('puede reabrir un finalizado y volver a editarlo sin recuperar un estado obsoleto',async()=>{
+    mock.records=[work({archivado:true,estado:'finalizado'}) as unknown as Record<string,unknown>]
+    await showApp();fireEvent.click(screen.getByRole('button',{name:'Archivados',exact:true}))
+    fireEvent.click(screen.getByRole('button',{name:'Trabajo ficticio de prueba',exact:true}))
+    fireEvent.click(screen.getByRole('button',{name:'Reabrir y recuperar del archivo'}))
+    await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull())
+    expect(mock.records[0]).toMatchObject({estado:'pendiente',archivado:false})
+    fireEvent.click(screen.getByRole('button',{name:'Panel diario',exact:true}));fireEvent.click(screen.getByRole('button',{name:'Abrir Trabajo ficticio de prueba'}))
+    expect((screen.getByLabelText('Estado del permiso') as HTMLSelectElement).value).toBe('pendiente')
+  })
+  it('completar desde la tarjeta abre la ampliación pendiente aunque sea anterior',async()=>{
+    mock.extensions=[extension({numero_ampliacion:null,fecha_ampliacion:null}),extension({id:'latest',numero_ampliacion:'AMP-ACTUAL',created_at:`${localToday()}T09:00:00Z`})]
+    await showApp();fireEvent.click(screen.getByRole('button',{name:'Completar ampliación'}))
+    expect((screen.getByLabelText('Nuevo número de permiso') as HTMLInputElement).value).toBe('')
+    fireEvent.change(screen.getByLabelText('Nuevo número de permiso'),{target:{value:'AMP-ANTERIOR-COMPLETA'}});fireEvent.change(screen.getByLabelText('Nueva fecha de ampliación'),{target:{value:localToday()}});submit('Guardar ampliación')
+    await waitFor(()=>expect(mock.writes.some(w=>w.op==='update'&&(w.conditions as Record<string,unknown>)?.id==='amp-1')).toBe(true))
+    await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.getByRole('button',{name:'Abrir Trabajo ficticio de prueba'}).textContent).toContain('AMP-ACTUAL')
+  })
+  it('guarda una ampliación incompleta y la completa mediante UPDATE sin duplicar',async()=>{
+    await showApp();fireEvent.change(screen.getByLabelText('Estado de Trabajo ficticio de prueba'),{target:{value:'ampliar'}});submit('Añadir ampliación')
+    await screen.findByRole('status')
+    expect(mock.extensions).toHaveLength(1);expect(mock.extensions[0]).toMatchObject({numero_ampliacion:null,fecha_ampliacion:null})
+    expect(screen.getByText('Falta número de permiso ampliado')).toBeTruthy();expect(screen.getByText('Falta fecha de ampliación')).toBeTruthy()
+    visualSnapshot('ampliacion-pendiente')
+    fireEvent.click(screen.getByRole('button',{name:'Completar ampliación'}))
+    fireEvent.change(screen.getByLabelText('Nuevo número de permiso'),{target:{value:'AMP-COMPLETA'}});fireEvent.change(screen.getByLabelText('Nueva fecha de ampliación'),{target:{value:localToday()}});submit('Guardar ampliación')
+    await waitFor(()=>expect(mock.extensions[0].numero_ampliacion).toBe('AMP-COMPLETA'))
+    await waitFor(()=>expect(screen.queryByText('Falta número de permiso ampliado')).toBeNull())
+    expect(mock.extensions).toHaveLength(1);expect(mock.records[0].numero_permiso).toBe('FICTICIO-ORIGINAL');expect(mock.records[0].estado).toBe('pendiente')
+    expect(mock.writes.filter(w=>w.table==='ampliaciones').map(w=>w.op)).toEqual(['insert','update'])
+  })
+  it('muestra la ampliación actual en tarjeta, ficha, registro, calendario y CSV',async()=>{
+    mock.extensions=[extension(),extension({id:'amp-2',numero_ampliacion:'AMP-ACTUAL',created_at:`${localToday()}T09:00:00Z`})]
+    await showApp();const card=screen.getByRole('button',{name:'Abrir Trabajo ficticio de prueba'});expect(card.textContent).toContain('AMP-ACTUAL');visualSnapshot('panel')
+    fireEvent.click(card);expect(screen.getByText('FICTICIO-ORIGINAL',{exact:false})).toBeTruthy()
+    fireEvent.click(screen.getByRole('button',{name:/Ver historial de ampliaciones/}));expect(screen.getByRole('heading',{name:'Historial de ampliaciones'})).toBeTruthy();visualSnapshot('historial-ampliaciones')
+    fireEvent.click(screen.getByRole('button',{name:'Cerrar',exact:true}));fireEvent.click(screen.getByRole('button',{name:'Registro',exact:true}))
+    expect(screen.getByRole('table').textContent).toContain('AMP-ACTUAL');visualSnapshot('registro')
+    fireEvent.click(screen.getByRole('button',{name:'CSV Excel'}));const csv=await (mock.blob as NodeBlob).text();expect(csv).toContain('AMP-ACTUAL');expect(csv).toContain('FICTICIO-ORIGINAL')
+    fireEvent.click(screen.getByRole('button',{name:'Calendario',exact:true}));expect(screen.getAllByRole('button',{name:/AMP-ACTUAL.*Trabajo ficticio/})).toHaveLength(1)
+    const week=isoWeek(localToday()),next=isoWeek(addDays(mondayOf(localToday()),7))
+    expect(screen.getByRole('heading',{name:`Semana ${week.week} · ${week.year}`})).toBeTruthy();expect(screen.getByRole('heading',{name:`Semana ${next.week} · ${next.year}`})).toBeTruthy();visualSnapshot('calendario')
+  })
+  it('CSV combina filtros y exporta únicamente el listado visible',async()=>{
+    mock.records=[work() as unknown as Record<string,unknown>,work({id:'other',descripcion:'Trabajo seleccionado ficticio',empresa:'Empresa ficticia B',fecha_programada:localToday()}) as unknown as Record<string,unknown>]
+    await showApp();fireEvent.click(screen.getByRole('button',{name:'Registro',exact:true}));fireEvent.change(screen.getByLabelText('Empresa'),{target:{value:'Empresa ficticia B'}});fireEvent.change(screen.getByLabelText('Desde'),{target:{value:localToday()}})
+    fireEvent.click(screen.getByRole('button',{name:'CSV Excel'}));const csv=await (mock.blob as NodeBlob).text();expect(csv).toContain('Trabajo seleccionado ficticio');expect(csv).not.toContain('Trabajo ficticio de prueba')
+    fireEvent.click(screen.getByRole('button',{name:'Limpiar filtros'}));expect(screen.getByText('Trabajo ficticio de prueba')).toBeTruthy()
+  })
+  it('un cambio rápido fallido conserva el estado anterior',async()=>{
+    await showApp();mock.failNext='Failed to fetch';fireEvent.change(screen.getByLabelText('Estado de Trabajo ficticio de prueba'),{target:{value:'ejecucion'}})
+    expect((await screen.findByRole('alert')).textContent).toContain('No se pudo conectar');expect(mock.records[0].estado).toBe('pendiente');expect((screen.getByLabelText('Estado de Trabajo ficticio de prueba') as HTMLSelectElement).value).toBe('pendiente');expect(screen.queryByRole('status')).toBeNull()
+  })
+  it.each([false,true])('confirma y elimina permisos activos/archivados (archivado=%s)',async archived=>{
+    mock.records=[work({archivado:archived}) as unknown as Record<string,unknown>];mock.extensions=[extension()]
+    await showApp();if(archived)fireEvent.click(screen.getByRole('button',{name:'Archivados',exact:true}))
+    fireEvent.click(screen.getByRole('button',{name:'Eliminar Trabajo ficticio de prueba'}));expect(screen.getByRole('alertdialog').textContent).toContain('no se puede deshacer')
+    fireEvent.click(screen.getByRole('button',{name:'Cancelar',exact:true}));expect(mock.writes).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button',{name:'Eliminar Trabajo ficticio de prueba'}));mock.failNext='Failed to fetch';fireEvent.click(screen.getByRole('button',{name:'Eliminar definitivamente'}))
+    await screen.findByRole('alert');expect(mock.records).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button',{name:'Eliminar definitivamente'}));await waitFor(()=>expect(mock.records).toHaveLength(0));expect(mock.extensions).toHaveLength(0)
+  })
+  it('bloquea la copia si falla la carga y ofrece reintentar',async()=>{
+    mock.fetchFail=true;render(<App/>);expect((await screen.findByRole('alert')).textContent).toContain('No se pudo conectar');fireEvent.click(screen.getByRole('button',{name:'Registro',exact:true}));expect((screen.getByRole('button',{name:'Copia JSON'}) as HTMLButtonElement).disabled).toBe(true);expect(screen.getByRole('button',{name:'Reintentar'})).toBeTruthy()
   })
 })

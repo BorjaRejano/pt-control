@@ -1,11 +1,26 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { localToday, addDays, dashboard, validateDescription, csvCell, permitInfo, extensionsFor, nextWorkingDay, isoWeek, mondayOf, filterWorks, defaultFilters, buildCsv, stateChange } from '../src/domain.ts'
+import { localToday, addDays, dashboard, validateDescription, validateExtensionProgression, validatePermitNumber, csvCell, permitInfo, extensionsFor, nextWorkingDay, isoWeek, mondayOf, filterWorks, defaultFilters, buildCsv, stateChange } from '../src/domain.ts'
 import { validPublicConfig } from '../src/config.ts'
 import type { Trabajo, Ampliacion } from '../src/lib.ts'
 
 const work = (overrides: Partial<Trabajo> = {}): Trabajo => ({ id:'test',user_id:'test',descripcion:'Trabajo ficticio',numero_permiso:'ORIGINAL',fecha_programada:null,zona:null,empresa:null,estado:'pendiente',notas:null,archivado:false,created_at:'2026-10-15T08:00:00Z',updated_at:'2026-10-15T08:00:00Z',...overrides })
 const extension = (overrides: Partial<Ampliacion> = {}): Ampliacion => ({ id:'extension',trabajo_id:'test',numero_ampliacion:'AMP-1',fecha_ampliacion:'2026-10-15',observaciones:null,created_at:'2026-10-15T09:00:00Z',...overrides })
+
+test('valida que los números de permiso informados tengan cinco dígitos',()=>{
+  assert.equal(validatePermitNumber(''),'')
+  assert.equal(validatePermitNumber('71247'),'')
+  assert.match(validatePermitNumber('7124'),/5 dígitos/)
+  assert.match(validatePermitNumber('712470'),/5 dígitos/)
+  assert.match(validatePermitNumber('71A47'),/5 dígitos/)
+})
+test('una ampliación debe avanzar el número y la fecha respecto al permiso anterior',()=>{
+  const previous={number:'71247',date:'2026-10-17'}
+  assert.equal(validateExtensionProgression('71248','2026-10-18',previous),'')
+  assert.match(validateExtensionProgression('71247','2026-10-18',previous),/número de ampliación debe ser superior/)
+  assert.match(validateExtensionProgression('71246','2026-10-18',previous),/número de ampliación debe ser superior/)
+  assert.match(validateExtensionProgression('71248','2026-10-17',previous),/fecha de ampliación debe ser posterior/)
+})
 
 test('fecha de Madrid independiente de la zona del ordenador y horario de verano',()=>{
   assert.equal(localToday(new Date('2026-10-14T22:30:00Z')),'2026-10-15')

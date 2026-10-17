@@ -33,6 +33,16 @@ export function extensionsFor(extensions: Ampliacion[], workId: string): Ampliac
 export function extensionWarnings(extension: Ampliacion): string[] {
   return [!extension.numero_ampliacion?.trim() ? 'Falta número de permiso ampliado' : '', !extension.fecha_ampliacion ? 'Falta fecha de ampliación' : ''].filter(Boolean)
 }
+export function validatePermitNumber(value: string): string {
+  const number = value.trim()
+  return number && !/^\d{5}$/.test(number) ? 'El número de permiso debe tener exactamente 5 dígitos.' : ''
+}
+export function validateExtensionProgression(number: string, date: string, previous: { number: string | null, date: string | null }): string {
+  const nextNumber = number.trim()
+  if (nextNumber && previous.number && /^\d{5}$/.test(previous.number) && Number(nextNumber) <= Number(previous.number)) return `El número de ampliación debe ser superior al permiso anterior (${previous.number}).`
+  if (date && previous.date && date <= previous.date) return `La fecha de ampliación debe ser posterior a la fecha anterior (${previous.date}).`
+  return ''
+}
 export function permitInfo(work: Trabajo, extensions: Ampliacion[]) {
   const ordered = extensionsFor(extensions, work.id)
   const latest = ordered[0] ?? null

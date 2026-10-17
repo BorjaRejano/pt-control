@@ -89,6 +89,19 @@ describe('flujos completos con backend simulado solo en pruebas',()=>{
     expect((section('Próximos trabajos').getByLabelText('Fecha programada de Futuro emitido') as HTMLInputElement).value).toBe(addDays(today,45))
     visualSnapshot('panel-fechas')
   })
+  it('inicia automáticamente los permisos cuya fecha vigente es hoy',async()=>{
+    const today=localToday()
+    mock.records=[
+      work({id:'pendiente-hoy',fecha_programada:today}),
+      work({id:'emitido-hoy',fecha_programada:today,estado:'emitido'}),
+      work({id:'finalizado-hoy',fecha_programada:today,estado:'finalizado'}),
+      work({id:'archivado-hoy',fecha_programada:today,archivado:true}),
+    ] as unknown as Record<string,unknown>[]
+    await showApp()
+    await waitFor(()=>expect(mock.records.every(work=>work.estado==='ejecucion')).toBe(true))
+    expect(mock.records.every(work=>work.archivado===false)).toBe(true)
+    expect(mock.writes.filter(write=>write.table==='trabajos'&&write.op==='update')).toHaveLength(4)
+  })
   it('protege las vistas e informa de credenciales incorrectas',async()=>{
     mock.session=null;mock.login.mockResolvedValue({error:{message:'Invalid login credentials'}})
     render(<App/>);await screen.findByRole('heading',{name:'Acceso personal'});visualSnapshot('acceso')
@@ -182,7 +195,7 @@ describe('flujos completos con backend simulado solo en pruebas',()=>{
     mock.extensions=[extension({numero_ampliacion:null,fecha_ampliacion:null}),extension({id:'latest',numero_ampliacion:'AMP-ACTUAL',created_at:`${localToday()}T09:00:00Z`})]
     await showApp();fireEvent.click(screen.getByRole('button',{name:'Completar ampliación'}))
     expect((screen.getByLabelText('Nuevo número de permiso') as HTMLInputElement).value).toBe('')
-    fireEvent.change(screen.getByLabelText('Nuevo número de permiso'),{target:{value:'AMP-ANTERIOR-COMPLETA'}});fireEvent.change(screen.getByLabelText('Nueva fecha de ampliación'),{target:{value:localToday()}});submit('Guardar ampliación')
+    fireEvent.change(screen.getByLabelText('Nuevo número de permiso'),{target:{value:'12345'}});fireEvent.change(screen.getByLabelText('Nueva fecha de ampliación'),{target:{value:localToday()}});submit('Guardar ampliación')
     await waitFor(()=>expect(mock.writes.some(w=>w.op==='update'&&(w.conditions as Record<string,unknown>)?.id==='amp-1')).toBe(true))
     await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull())
     expect(screen.getByRole('button',{name:'Abrir Trabajo ficticio de prueba'}).textContent).toContain('AMP-ACTUAL')
@@ -194,23 +207,40 @@ describe('flujos completos con backend simulado solo en pruebas',()=>{
     expect(screen.getByText('Falta número de permiso ampliado')).toBeTruthy();expect(screen.getByText('Falta fecha de ampliación')).toBeTruthy()
     visualSnapshot('ampliacion-pendiente')
     fireEvent.click(screen.getByRole('button',{name:'Completar ampliación'}))
-    fireEvent.change(screen.getByLabelText('Nuevo número de permiso'),{target:{value:'AMP-COMPLETA'}});fireEvent.change(screen.getByLabelText('Nueva fecha de ampliación'),{target:{value:localToday()}});submit('Guardar ampliación')
-    await waitFor(()=>expect(mock.extensions[0].numero_ampliacion).toBe('AMP-COMPLETA'))
+    fireEvent.change(screen.getByLabelText('Nuevo número de permiso'),{target:{value:'12345'}});fireEvent.change(screen.getByLabelText('Nueva fecha de ampliación'),{target:{value:localToday()}});submit('Guardar ampliación')
+    await waitFor(()=>expect(mock.extensions[0].numero_ampliacion).toBe('12345'))
     await waitFor(()=>expect(screen.queryByText('Falta número de permiso ampliado')).toBeNull())
-    expect(mock.extensions).toHaveLength(1);expect(mock.records[0].numero_permiso).toBe('FICTICIO-ORIGINAL');expect(mock.records[0].estado).toBe('pendiente')
+    expect(mock.extensions).toHaveLength(1);expect(mock.records[0].numero_permiso).toBe('FICTICIO-ORIGINAL');expect(mock.records[0].estado).toBe('ejecucion')
     expect(mock.writes.filter(w=>w.table==='ampliaciones').map(w=>w.op)).toEqual(['insert','update'])
   })
   it('muestra la ampliación actual en tarjeta, ficha, registro, calendario y CSV',async()=>{
     mock.extensions=[extension(),extension({id:'amp-2',numero_ampliacion:'AMP-ACTUAL',created_at:`${localToday()}T09:00:00Z`})]
     await showApp();const card=screen.getByRole('button',{name:'Abrir Trabajo ficticio de prueba'});expect(card.textContent).toContain('AMP-ACTUAL');visualSnapshot('panel')
     fireEvent.click(card);expect(screen.getByText('FICTICIO-ORIGINAL',{exact:false})).toBeTruthy()
-    fireEvent.click(screen.getByRole('button',{name:/Ver historial de ampliaciones/}));expect(screen.getByRole('heading',{name:'Historial de ampliaciones'})).toBeTruthy();visualSnapshot('historial-ampliaciones')
+    fireEvent.click(screen.getByRole('button',{name:/Ver historial de ampliaciones/}));expect(screen.getByRole('heading',{name:'Historial de ampliaciones'})).toBeTruthy();expect(screen.getByRole('button',{name:'Eliminar ampliación AMP-ACTUAL'})).toBeTruthy();visualSnapshot('historial-ampliaciones')
     fireEvent.click(screen.getByRole('button',{name:'Cerrar',exact:true}));fireEvent.click(screen.getByRole('button',{name:'Registro',exact:true}))
     expect(screen.getByRole('table').textContent).toContain('AMP-ACTUAL');visualSnapshot('registro')
     fireEvent.click(screen.getByRole('button',{name:'CSV Excel'}));const csv=await (mock.blob as NodeBlob).text();expect(csv).toContain('AMP-ACTUAL');expect(csv).toContain('FICTICIO-ORIGINAL')
     fireEvent.click(screen.getByRole('button',{name:'Calendario',exact:true}));expect(screen.getAllByRole('button',{name:/AMP-ACTUAL.*Trabajo ficticio/})).toHaveLength(1)
     const week=isoWeek(localToday()),next=isoWeek(addDays(mondayOf(localToday()),7))
     expect(screen.getByRole('heading',{name:`Semana ${week.week} · ${week.year}`})).toBeTruthy();expect(screen.getByRole('heading',{name:`Semana ${next.week} · ${next.year}`})).toBeTruthy();visualSnapshot('calendario')
+  })
+  it('permite editar desde la ficha y eliminar una ampliación desde su historial',async()=>{
+    mock.extensions=[extension()]
+    await showApp()
+    fireEvent.click(screen.getByRole('button',{name:'Editar ampliación'}))
+    expect(screen.getByRole('dialog',{name:'Editar ampliación'})).toBeTruthy()
+    fireEvent.click(screen.getByRole('button',{name:'Cancelar',exact:true}))
+    fireEvent.click(screen.getByRole('button',{name:'Abrir Trabajo ficticio de prueba'}))
+    fireEvent.click(screen.getByRole('button',{name:/Ver historial de ampliaciones/}))
+    fireEvent.click(screen.getByRole('button',{name:'Eliminar ampliación AMP-ANTERIOR'}))
+    expect(screen.getByRole('alertdialog',{name:'Eliminar ampliación'}).textContent).toContain('no se puede deshacer')
+    fireEvent.click(screen.getByRole('button',{name:'Cancelar',exact:true}))
+    expect(mock.extensions).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button',{name:'Eliminar ampliación AMP-ANTERIOR'}))
+    fireEvent.click(screen.getByRole('button',{name:'Eliminar ampliación',exact:true}))
+    await waitFor(()=>expect(mock.extensions).toHaveLength(0))
+    expect(mock.writes.some(write=>write.table==='ampliaciones'&&write.op==='delete')).toBe(true)
   })
   it('CSV combina filtros y exporta únicamente el listado visible',async()=>{
     mock.records=[work() as unknown as Record<string,unknown>,work({id:'other',descripcion:'Trabajo seleccionado ficticio',empresa:'Empresa ficticia B',fecha_programada:localToday()}) as unknown as Record<string,unknown>]
@@ -223,7 +253,7 @@ describe('flujos completos con backend simulado solo en pruebas',()=>{
     expect((await screen.findByRole('alert')).textContent).toContain('No se pudo conectar');expect(mock.records[0].estado).toBe('pendiente');expect((screen.getByLabelText('Estado de Trabajo ficticio de prueba') as HTMLSelectElement).value).toBe('pendiente');expect(screen.queryByRole('status')).toBeNull()
   })
   it.each([false,true])('confirma y elimina permisos activos/archivados (archivado=%s)',async archived=>{
-    mock.records=[work({archivado:archived}) as unknown as Record<string,unknown>];mock.extensions=[extension()]
+    mock.records=[work({archivado:archived}) as unknown as Record<string,unknown>];mock.extensions=[extension({fecha_ampliacion:addDays(localToday(),1)})]
     await showApp();if(archived)fireEvent.click(screen.getByRole('button',{name:'Archivados',exact:true}))
     fireEvent.click(screen.getByRole('button',{name:'Eliminar Trabajo ficticio de prueba'}));expect(screen.getByRole('alertdialog').textContent).toContain('no se puede deshacer')
     fireEvent.click(screen.getByRole('button',{name:'Cancelar',exact:true}));expect(mock.writes).toHaveLength(0)

@@ -30,9 +30,11 @@ export default function App() {
   const [today,setToday]=useState(localToday())
   const [editing,setEditing]=useState<{id:string,planDate?:string}|null>(null)
   const [extensionDialog,setExtensionDialog]=useState<{work:Trabajo,extension?:Ampliacion}|null>(null)
+  const [deletingExtension,setDeletingExtension]=useState<{work:Trabajo,extension:Ampliacion}|null>(null)
   const [deleting,setDeleting]=useState<Trabajo|null>(null)
   const version=useRef(0)
   const userRef=useRef(session?.user.id)
+  const autoStartAttempt=useRef('')
   userRef.current=session?.user.id
 
   useEffect(()=>{
@@ -54,7 +56,7 @@ export default function App() {
     finally{if(current===version.current)setLoading(false)}
   },[])
   useEffect(()=>{
-    setRecords([]);setExtensions([]);setComments([]);setHistory([]);setLoaded(false);setEditing(null);setExtensionDialog(null);setDeleting(null);setToast('');setLoadError('')
+    setRecords([]);setExtensions([]);setComments([]);setHistory([]);setLoaded(false);setEditing(null);setExtensionDialog(null);setDeletingExtension(null);setDeleting(null);setToast('');setLoadError('')
     if(session?.user.id)void reload()
     return ()=>{++version.current}
   },[session?.user.id,reload])
@@ -72,6 +74,26 @@ export default function App() {
   useEffect(()=>{
     if(loaded&&editing&&editing.id!=='new'&&!records.some(w=>w.id===editing.id))setEditing(null)
   },[loaded,records,editing])
+  useEffect(()=>{
+    if(!supabase||!session?.user.id||!loaded||busy)return
+    const candidates=records.filter(work=>work.estado!=='ejecucion'&&permitInfo(work,extensions).date===today)
+    if(!candidates.length)return
+    const signature=`${today}:${candidates.map(work=>work.id).sort().join(',')}`
+    if(autoStartAttempt.current===signature)return
+    autoStartAttempt.current=signature
+    const owner=session.user.id
+    setBusy(true);setError('')
+    void Promise.all(candidates.map(async work=>{
+      const {data,error:err}=await supabase!.from('trabajos').update({estado:'ejecucion',archivado:false}).eq('id',work.id).select('*').single()
+      if(err||!data)throw err||new Error('No se pudo iniciar el permiso programado para hoy.')
+      return data as Trabajo
+    })).then(updated=>{
+      if(userRef.current!==owner)return
+      const byId=new Map(updated.map(work=>[work.id,work]))
+      setRecords(rows=>rows.map(work=>byId.get(work.id)||work))
+      setToast(updated.length===1?'Permiso de hoy iniciado automáticamente':'Permisos de hoy iniciados automáticamente')
+    }).catch(err=>{if(userRef.current===owner)setError(readableError(err))}).finally(()=>setBusy(false))
+  },[records,extensions,today,loaded,session?.user.id,busy])
 
   const panel=useMemo(()=>dashboard(records,today,extensions),[records,today,extensions])
   const listFilters={...filters,archive:view==='archivo'}
@@ -145,6 +167,15 @@ export default function App() {
       return id
     },()=>{setRecords(rows=>rows.filter(w=>w.id!==id));setExtensions(rows=>rows.filter(e=>e.trabajo_id!==id));setComments(rows=>rows.filter(c=>c.trabajo_id!==id));setHistory(rows=>rows.filter(h=>h.trabajo_id!==id));setDeleting(null);if(editing?.id===id)setEditing(null);if(extensionDialog?.work.id===id)setExtensionDialog(null)},'Permiso eliminado')
   }
+  async function deleteExtension(){
+    if(!deletingExtension)return
+    const target=deletingExtension
+    await mutate(async()=>{
+      const {data,error:err}=await supabase!.from('ampliaciones').delete().eq('id',target.extension.id).eq('trabajo_id',target.work.id).select('id').single()
+      if(err||!data)throw err||new Error('No se pudo eliminar la ampliación.')
+      return target.extension.id
+    },id=>{setExtensions(rows=>rows.filter(extension=>extension.id!==id));setDeletingExtension(null)},'Ampliación eliminada')
+  }
   async function addComment(id:string,contenido:string){
     return mutate(async()=>{
       const {data,error:err}=await supabase!.from('comentarios').insert({trabajo_id:id,contenido}).select('*').single()
@@ -156,16 +187,17 @@ export default function App() {
   async function logout(){try{const {error:err}=await supabase!.auth.signOut({scope:'local'});if(err)throw err;setError('')}catch(err){setError(readableError(err))}}
   function download(content:string,type:string,filename:string){const url=URL.createObjectURL(new Blob([content],{type}));const a=document.createElement('a');a.href=url;a.download=filename;a.click();window.setTimeout(()=>URL.revokeObjectURL(url),1000)}
   function exportBackup(){download(JSON.stringify({format:'PT_CONTROL_v1',schema_version:3,exported_at:new Date().toISOString(),trabajos:records,ampliaciones:extensions,comentarios:comments,historial_cambios:history},null,2),'application/json',`PT_CONTROL_copia_${today}.json`)}
-  const actions:WorkActions={busy,onOpen:openWork,onState:(w,s)=>{void changeState(w,s)},onDate:(w,e,date)=>{void changeDate(w,e,date)},onExtend:openExtension,onDelete:work=>{setError('');setDeleting(work)}}
+  const actions:WorkActions={busy,onOpen:openWork,onState:(w,s)=>{void changeState(w,s)},onDate:(w,e,date)=>{void changeDate(w,e,date)},onExtend:openExtension,onDeleteExtension:(work,extension)=>{setError('');setDeletingExtension({work,extension})},onDelete:work=>{setError('');setDeleting(work)}}
   const cards=(works:Trabajo[],empty:string)=><div className="compact-cards">{works.length?works.map(work=><WorkCard key={work.id} work={work} extensions={extensions} actions={actions}/>):<p className="empty">{empty}</p>}</div>
 
   if(!configured)return <NoConfig/>
   if(!authChecked)return <div className="loading-page"><RefreshCw className="spin"/> Comprobando sesión…</div>
   if(!session)return <AuthScreen onSignIn={login} initialError={error}/>
   const nav=[{id:'panel',name:'Panel diario',icon:LayoutDashboard},{id:'calendario',name:'Calendario',icon:CalendarDays},{id:'registro',name:'Registro',icon:ClipboardList},{id:'archivo',name:'Archivados',icon:Archive}] as const
+  const summaryKpis=[{label:'Sin programar',count:panel.unplanned.length,color:'yellow',state:'sin_programar'}, {label:'Pendientes',count:panel.pending.length,color:'blue',state:'pendiente'}, {label:'Emitidos',count:panel.issued.length,color:'purple',state:'emitido'}, {label:'En ejecución',count:panel.executing.length,color:'green',state:'ejecucion'}, {label:'Finalizados',count:panel.finished.length,color:'gray',state:'finalizado'}] as const
   return <div className="app">
-    <div inert={!!editing||!!extensionDialog||!!deleting}>
-      <div className="app-navigation"><header className="topbar"><div className="top-main"><Brand compact/><div className="top-actions"><span className="today-label">{longDate(today)}</span><button className="primary" onClick={()=>openWork()}><Plus size={16}/> Nuevo trabajo</button><button className="icon-button inverted" disabled={busy} aria-label="Cerrar sesión" onClick={()=>void logout()}><LogOut size={18}/></button></div></div></header><div className="tabs-bar"><nav className="tabs" aria-label="Secciones">{nav.map(({id,name,icon:Icon})=><button key={id} className={`navtab ${view===id?'selected':''}`} onClick={()=>navigate(id)}><Icon size={17}/>{name}</button>)}</nav></div></div>
+    <div inert={!!editing||!!extensionDialog||!!deletingExtension||!!deleting}>
+      <div className="app-navigation"><header className="topbar"><div className="top-main"><Brand compact/><div className="top-actions"><span className="today-label">{longDate(today)}</span><button className="primary" onClick={()=>openWork()}><Plus size={16}/> Nuevo trabajo</button><button className="icon-button inverted" disabled={busy} aria-label="Cerrar sesión" onClick={()=>void logout()}><LogOut size={18}/></button></div></div></header><div className="tabs-bar"><div className="navigation-content"><nav className="tabs" aria-label="Secciones">{nav.map(({id,name,icon:Icon})=><button key={id} className={`navtab ${view===id?'selected':''}`} onClick={()=>navigate(id)}><Icon size={17}/>{name}</button>)}</nav><div className="nav-kpis" aria-label="Resumen del panel diario">{summaryKpis.map(k=><button key={k.state} className={`nav-kpi ${k.color}`} onClick={()=>navigate(k.state==='finalizado'?'archivo':'registro',k.state)}><span>{k.label}</span><b>{k.count}</b></button>)}</div></div></div></div>
       <main className="main">
         {loadError&&<div className="alert error global-error" role="alert"><span>{loadError}</span><button disabled={loading} onClick={()=>void reload()}>Reintentar</button></div>}
         {error&&!editing&&!extensionDialog&&!deleting&&<div className="alert error global-error" role="alert"><span>{error}</span><button aria-label="Ocultar error" onClick={()=>setError('')}><X size={15}/></button></div>}
@@ -173,7 +205,6 @@ export default function App() {
         {loading&&<div className="sync-line"><RefreshCw size={13} className="spin"/> Sincronizando datos…</div>}
         {view==='panel'&&<>
           <div className="page-title"><div><h1>Panel diario</h1><p>Resumen de permisos y trabajos pendientes de gestión.</p></div><button className="secondary" onClick={()=>void reload()}><RefreshCw size={15}/> Actualizar</button></div>
-          <div className="kpis">{[{label:'Sin programar',count:panel.unplanned.length,color:'orange',hint:'Sin fecha asignada',state:'sin_programar'}, {label:'Pendientes',count:panel.pending.length,color:'purple',hint:'Pendientes de emisión',state:'pendiente'}, {label:'Emitidos',count:panel.issued.length,color:'blue',hint:'Permisos emitidos',state:'emitido'}, {label:'En ejecución',count:panel.executing.length,color:'green',hint:'Trabajos en curso',state:'ejecucion'}, {label:'Finalizados',count:panel.finished.length,color:'gray',hint:'Conservados en Archivados',state:'finalizado'}].map(k=><button key={k.state} className={`kpi ${k.color}`} onClick={()=>navigate(k.state==='finalizado'?'archivo':'registro',k.state)}><span>{k.label}</span><strong>{k.count}</strong><small>{k.hint}</small></button>)}</div>
           <section className="panel daily-section"><div className="panel-heading"><div><h2><Activity size={18}/> Trabajos de hoy</h2><small>{shortDate(today)} · {panel.todayJobs.length} trabajos activos</small></div></div>{cards(panel.todayJobs,'No tienes trabajos activos programados para hoy.')}</section>
           <section className="panel daily-section"><div className="panel-heading"><div><h2><Calendar size={18}/> Próximos trabajos</h2><small>Fecha posterior a hoy · Pendientes, emitidos o con ampliaciones</small></div><button className="text-button" onClick={()=>navigate('calendario')}>Ver calendario <ArrowRight size={14}/></button></div>{cards(panel.upcoming,'No hay permisos pendientes, emitidos o ampliados con fecha posterior a hoy.')}</section>
           <section className="panel attention daily-section"><div className="panel-heading"><h2><CalendarClock size={18}/> Permisos sin programar</h2><b className="counter orange-counter">{panel.unplanned.length}</b></div><div className="compact-cards">{panel.unplanned.map(work=><div className="unplanned-row" key={work.id} data-status={work.estado} data-incomplete={!!permitInfo(work,extensions).warnings.length}><WorkCard work={work} extensions={extensions} actions={actions}/><button className="small-action" disabled={busy} onClick={()=>openWork(work,today)}>Programar <ArrowRight size={13}/></button></div>)}{!panel.unplanned.length&&<p className="empty">No hay permisos pendientes de programar.</p>}</div></section>
@@ -184,8 +215,9 @@ export default function App() {
         <footer><span><ShieldCheck size={14}/> Acceso privado · Datos almacenados en Supabase</span><span>PT CONTROL</span></footer>
       </main>
     </div>
-    {editing&&(editing.id==='new'||selected)&&<div inert={!!extensionDialog||!!deleting}><WorkDetail key={editing.id} work={selected||null} planDate={editing.planDate} extensions={extensions} comments={comments} history={history} busy={busy} error={error} onClose={()=>{if(!busy)setEditing(null)}} onSave={saveWork} onExtend={openExtension} onDelete={actions.onDelete} onArchive={archiveWork} onComment={addComment}/></div>}
-    {extensionDialog&&<div inert={!!deleting}><ExtensionDialog key={extensionDialog.extension?.id||`new-${extensionDialog.work.id}`} work={extensionDialog.work} extension={extensionDialog.extension} busy={busy} error={error} onClose={()=>{if(!busy){setExtensionDialog(null);setError('')}}} onSave={saveExtension}/></div>}
+    {editing&&(editing.id==='new'||selected)&&<div inert={!!extensionDialog||!!deletingExtension||!!deleting}><WorkDetail key={editing.id} work={selected||null} planDate={editing.planDate} extensions={extensions} comments={comments} history={history} busy={busy} error={error} onClose={()=>{if(!busy)setEditing(null)}} onSave={saveWork} onExtend={openExtension} onDeleteExtension={actions.onDeleteExtension} onDelete={actions.onDelete} onArchive={archiveWork} onComment={addComment}/></div>}
+    {extensionDialog&&<div inert={!!deletingExtension||!!deleting}><ExtensionDialog key={extensionDialog.extension?.id||`new-${extensionDialog.work.id}`} work={extensionDialog.work} extensions={extensions} extension={extensionDialog.extension} busy={busy} error={error} onClose={()=>{if(!busy){setExtensionDialog(null);setError('')}}} onSave={saveExtension}/></div>}
+    {deletingExtension&&<Modal title="Eliminar ampliación" eyebrow={deletingExtension.extension.numero_ampliacion||'SIN NÚMERO'} busy={busy} onClose={()=>{if(!busy)setDeletingExtension(null)}} alert><div className="modal-body">{error&&<p className="alert error" role="alert">{error}</p>}<p>Vas a eliminar la ampliación de <strong>{deletingExtension.work.descripcion}</strong>.</p><p className="delete-explanation">El permiso volverá a mostrar su número y fecha anteriores. Esta acción no se puede deshacer.</p><div className="form-actions"><button className="secondary" disabled={busy} onClick={()=>setDeletingExtension(null)}>Cancelar</button><button className="danger-button" disabled={busy} onClick={()=>void deleteExtension()}>{busy?'Eliminando…':'Eliminar ampliación'}</button></div></div></Modal>}
     {deleting&&<Modal title="Eliminar permiso" eyebrow={permitInfo(deleting,extensions).number||'SIN NÚMERO'} busy={busy} onClose={()=>{if(!busy)setDeleting(null)}} alert><div className="modal-body">{error&&<p className="alert error" role="alert">{error}</p>}<p>Vas a eliminar definitivamente <strong>{deleting.descripcion}</strong>.</p><p className="delete-explanation">Se eliminarán el trabajo, sus ampliaciones, comentarios e historial. Esta acción no se puede deshacer.</p><div className="form-actions"><button className="secondary" disabled={busy} onClick={()=>setDeleting(null)}>Cancelar</button><button className="danger-button" disabled={busy} onClick={()=>void deleteWork()}>{busy?'Eliminando…':'Eliminar definitivamente'}</button></div></div></Modal>}
   </div>
 }

@@ -9,6 +9,7 @@ export interface WorkActions {
   onState: (work: Trabajo, status: Status) => void
   onDate: (work: Trabajo, extension: Ampliacion | undefined, date: string | null) => void
   onExtend: (work: Trabajo, extension?: Ampliacion) => void
+  onDeleteExtension: (work: Trabajo, extension: Ampliacion) => void
   onDelete: (work: Trabajo) => void
 }
 export function Warnings({ messages }: {messages:string[]}) {
@@ -35,7 +36,7 @@ export function WorkCard({ work, extensions, actions }: {work:Trabajo,extensions
     </button>
     <div className="permit-bottom"><label className="permit-date-picker"><Calendar size={12}/><span className="sr-only">{dateLabel} de {work.descripcion}</span><input aria-label={`${dateLabel} de ${work.descripcion}`} type="date" value={dateValue} disabled={actions.busy} onChange={e=>actions.onDate(work,dateTarget,e.target.value||null)}/>{p.datePending&&<small className="reference-label">Fecha de referencia</small>}</label>{p.extensions.length>0&&<span className="extension-mark"><Files size={12}/>{p.extensions.length} ampl.</span>}</div>
     <Warnings messages={p.warnings}/>
-    <div className="permit-actions"><StatusControl work={work} actions={actions}/>{extensionToOpen&&<button className="text-button" disabled={actions.busy} onClick={()=>actions.onExtend(work,extensionToOpen)}><History size={14}/>{p.warnings.length?'Completar ampliación':'Ver ampliación'}</button>}<button className="icon-button delete-icon" disabled={actions.busy} onClick={()=>actions.onDelete(work)} aria-label={`Eliminar ${work.descripcion}`}><Trash2 size={14}/></button></div>
+    <div className="permit-actions"><StatusControl work={work} actions={actions}/>{extensionToOpen&&<button className="text-button" disabled={actions.busy} onClick={()=>actions.onExtend(work,extensionToOpen)}><History size={14}/>{p.warnings.length?'Completar ampliación':'Editar ampliación'}</button>}<button className="icon-button delete-icon" disabled={actions.busy} onClick={()=>actions.onDelete(work)} aria-label={`Eliminar ${work.descripcion}`}><Trash2 size={14}/></button></div>
   </article>
 }
 export function CalendarWeeks({ starts, today, records, extensions, actions }: {starts:string[],today:string,records:Trabajo[],extensions:Ampliacion[],actions:WorkActions}) {

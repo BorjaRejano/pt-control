@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Calendar, Files, History, Trash2 } from 'lucide-react'
 import { addDays, extensionWarnings, isoWeek, permitInfo, type WorkFilters, type SortKey } from './domain'
 import { shortDate, statusLabels, statusOptions, type Trabajo, type Ampliacion, type Status } from './lib'
@@ -31,18 +32,30 @@ export function WorkCard({ work, extensions, actions }: {work:Trabajo,extensions
       <span className="permit-top"><span className="permit-no">{p.number || 'SIN Nº · BORRADOR'}{p.numberPending&&<small className="reference-label">Número de referencia</small>}</span><StateTag status={work.estado}/></span>
       <strong className="permit-title">{work.descripcion}</strong>
       <span className="permit-meta">{work.zona || 'Sin zona'}{work.empresa?` · ${work.empresa}`:''}</span>
-      <span className="permit-bottom"><span><Calendar size={12}/>{shortDate(p.date)}{p.datePending?' · referencia':''}</span>{p.extensions.length>0&&<span className="extension-mark"><Files size={12}/>{p.extensions.length} ampl.</span>}</span>
     </button>
+    <div className="permit-bottom"><label className="permit-date-picker"><Calendar size={12}/><span className="sr-only">{dateLabel} de {work.descripcion}</span><input aria-label={`${dateLabel} de ${work.descripcion}`} type="date" value={dateValue} disabled={actions.busy} onChange={e=>actions.onDate(work,dateTarget,e.target.value||null)}/>{p.datePending&&<small className="reference-label">Fecha de referencia</small>}</label>{p.extensions.length>0&&<span className="extension-mark"><Files size={12}/>{p.extensions.length} ampl.</span>}</div>
     <Warnings messages={p.warnings}/>
-    <div className="permit-actions"><StatusControl work={work} actions={actions}/><label className="card-date-control">{dateLabel}<input aria-label={`${dateLabel} de ${work.descripcion}`} type="date" value={dateValue} disabled={actions.busy} onChange={e=>actions.onDate(work,dateTarget,e.target.value||null)}/></label>{extensionToOpen&&<button className="text-button" disabled={actions.busy} onClick={()=>actions.onExtend(work,extensionToOpen)}><History size={14}/>{p.warnings.length?'Completar ampliación':'Ver ampliación'}</button>}<button className="icon-button delete-icon" disabled={actions.busy} onClick={()=>actions.onDelete(work)} aria-label={`Eliminar ${work.descripcion}`}><Trash2 size={14}/></button></div>
+    <div className="permit-actions"><StatusControl work={work} actions={actions}/>{extensionToOpen&&<button className="text-button" disabled={actions.busy} onClick={()=>actions.onExtend(work,extensionToOpen)}><History size={14}/>{p.warnings.length?'Completar ampliación':'Ver ampliación'}</button>}<button className="icon-button delete-icon" disabled={actions.busy} onClick={()=>actions.onDelete(work)} aria-label={`Eliminar ${work.descripcion}`}><Trash2 size={14}/></button></div>
   </article>
 }
 export function CalendarWeeks({ starts, today, records, extensions, actions }: {starts:string[],today:string,records:Trabajo[],extensions:Ampliacion[],actions:WorkActions}) {
+  const [draggedId,setDraggedId]=useState<string|null>(null)
+  const [dropDay,setDropDay]=useState<string|null>(null)
+  function moveToDay(day:string,event:React.DragEvent<HTMLDivElement>){
+    event.preventDefault()
+    const id=event.dataTransfer.getData('text/plain')||draggedId
+    const work=records.find(row=>row.id===id)
+    if(work){
+      const info=permitInfo(work,extensions)
+      if(info.date!==day)actions.onDate(work,info.latest,day)
+    }
+    setDraggedId(null);setDropDay(null)
+  }
   return <div className="calendar-weeks">{starts.map(start=>{
     const week=isoWeek(start),days=Array.from({length:7},(_,i)=>addDays(start,i))
     return <section className="panel" key={start}><div className="panel-heading"><div><h2>Semana {week.week} · {week.year}</h2><small>Del {shortDate(start)} al {shortDate(days[6])}</small></div></div>
-      <p className="calendar-scroll-hint">Desliza horizontalmente para consultar todos los días.</p><div className="calendar-grid" tabIndex={0} role="region" aria-label={`Días de la semana ${week.week}`}>{days.map((day,i)=><div className={`day-column ${day===today?'today':''}`} key={day}><div className="day-header"><small>{['LUN','MAR','MIÉ','JUE','VIE','SÁB','DOM'][i]}</small><strong>{Number(day.slice(8))}</strong></div><div className="day-events">
-        {records.filter(w=>permitInfo(w,extensions).date===day).map(w=>{const p=permitInfo(w,extensions);return <button key={w.id} className={`day-event event-${w.estado}`} data-status={w.estado} data-incomplete={!!p.warnings.length} onClick={()=>actions.onOpen(w)}><b>{p.number || 'SIN Nº'}</b>{p.numberPending&&<small>Número de referencia</small>}<span>{w.descripcion}</span><small>{statusLabels[w.estado]}</small>{p.datePending&&<small>Fecha de referencia</small>}{p.warnings.map(message=><small className="calendar-warning" key={message}>{message}</small>)}</button>})}
+      <p className="calendar-drag-hint">Arrastra una ficha a otro día para reprogramarla.</p><p className="calendar-scroll-hint">Desliza horizontalmente para consultar todos los días.</p><div className="calendar-grid" tabIndex={0} role="region" aria-label={`Días de la semana ${week.week}`}>{days.map((day,i)=><div className={`day-column ${day===today?'today':''} ${dropDay===day?'drop-target':''}`} key={day} onDragOver={event=>{event.preventDefault();event.dataTransfer.dropEffect='move';setDropDay(day)}} onDragLeave={event=>{if(event.currentTarget===event.target)setDropDay(null)}} onDrop={event=>moveToDay(day,event)}><div className="day-header"><small>{['LUN','MAR','MIÉ','JUE','VIE','SÁB','DOM'][i]}</small><strong>{Number(day.slice(8))}</strong></div><div className="day-events">
+        {records.filter(w=>permitInfo(w,extensions).date===day).map(w=>{const p=permitInfo(w,extensions);return <button key={w.id} className={`day-event event-${w.estado}`} data-status={w.estado} data-incomplete={!!p.warnings.length} draggable disabled={actions.busy} onDragStart={event=>{event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',w.id);setDraggedId(w.id)}} onDragEnd={()=>{setDraggedId(null);setDropDay(null)}} onClick={()=>actions.onOpen(w)}><b>{p.number || 'SIN Nº'}</b>{p.numberPending&&<small>Número de referencia</small>}<span>{w.descripcion}</span><small>{statusLabels[w.estado]}</small>{p.datePending&&<small>Fecha de referencia</small>}{p.warnings.map(message=><small className="calendar-warning" key={message}>{message}</small>)}</button>})}
       </div></div>)}</div></section>
   })}</div>
 }

@@ -86,7 +86,7 @@ describe('flujos completos con backend simulado solo en pruebas',()=>{
     expect(descriptions('Trabajos con fecha anterior aún abiertos')).toEqual(['Abrir Pasado en ejecución','Abrir Pasado emitido','Abrir Pasado pendiente'])
     expect(descriptions('Trabajos de hoy')).toEqual(['Abrir Trabajo de hoy'])
     expect(descriptions('Próximos trabajos')).toEqual(['Abrir Futuro pendiente','Abrir Futuro ampliado','Abrir Futuro emitido'])
-    expect(section('Próximos trabajos').getByRole('button',{name:'Abrir Futuro emitido'}).textContent).toContain(addDays(today,45).slice(0,4))
+    expect((section('Próximos trabajos').getByLabelText('Fecha programada de Futuro emitido') as HTMLInputElement).value).toBe(addDays(today,45))
     visualSnapshot('panel-fechas')
   })
   it('protege las vistas e informa de credenciales incorrectas',async()=>{
@@ -122,11 +122,27 @@ describe('flujos completos con backend simulado solo en pruebas',()=>{
   it('actualiza la fecha vigente desde la tarjeta sin abrir el detalle',async()=>{
     await showApp()
     const date=addDays(localToday(),4)
-    fireEvent.change(screen.getByLabelText('Fecha programada de Trabajo ficticio de prueba'),{target:{value:date}})
+    const control=screen.getByLabelText('Fecha programada de Trabajo ficticio de prueba')
+    fireEvent.click(control)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    fireEvent.change(control,{target:{value:date}})
     await screen.findByRole('status')
     expect(mock.records[0].fecha_programada).toBe(date)
     expect(mock.writes.at(-1)).toMatchObject({table:'trabajos',op:'update',payload:{fecha_programada:date}})
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+  it('reprograma un permiso al arrastrar su ficha a otro día del calendario',async()=>{
+    const today=localToday(),tomorrow=addDays(today,1)
+    mock.records=[work({fecha_programada:today}) as unknown as Record<string,unknown>]
+    await showApp();fireEvent.click(screen.getByRole('button',{name:'Calendario',exact:true}))
+    const event=screen.getByRole('button',{name:/FICTICIO-ORIGINAL.*Trabajo ficticio de prueba/})
+    const dataTransfer={data:{},effectAllowed:'',dropEffect:'',setData(key:string,value:string){this.data[key]=value},getData(key:string){return this.data[key]||''}}
+    fireEvent.dragStart(event,{dataTransfer})
+    const target=screen.getAllByText(String(Number(tomorrow.slice(8))),{selector:'.day-header strong'}).find(node=>node.closest('.day-column')?.querySelector('.day-event')===null)?.closest('.day-column')!
+    fireEvent.drop(target,{dataTransfer})
+    await screen.findByRole('status')
+    expect(mock.records[0].fecha_programada).toBe(tomorrow)
+    expect(mock.writes.at(-1)).toMatchObject({table:'trabajos',op:'update',payload:{fecha_programada:tomorrow}})
   })
   it('finalizar desde la ficha también archiva',async()=>{
     await showApp();fireEvent.click(screen.getByRole('button',{name:'Abrir Trabajo ficticio de prueba'}))

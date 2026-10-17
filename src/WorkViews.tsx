@@ -6,6 +6,7 @@ export interface WorkActions {
   busy: boolean
   onOpen: (work: Trabajo) => void
   onState: (work: Trabajo, status: Status) => void
+  onDate: (work: Trabajo, extension: Ampliacion | undefined, date: string | null) => void
   onExtend: (work: Trabajo, extension?: Ampliacion) => void
   onDelete: (work: Trabajo) => void
 }
@@ -22,6 +23,9 @@ export function StateTag({ status }: {status:Status}) {return <span className={`
 export function WorkCard({ work, extensions, actions }: {work:Trabajo,extensions:Ampliacion[],actions:WorkActions}) {
   const p=permitInfo(work,extensions)
   const extensionToOpen=p.extensions.find(ex=>extensionWarnings(ex).length>0)||p.latest
+  const dateTarget=p.latest
+  const dateValue=dateTarget?.fecha_ampliacion ?? work.fecha_programada ?? ''
+  const dateLabel=dateTarget?'Fecha de ampliación':'Fecha programada'
   return <article className="permit-card" data-status={work.estado} data-incomplete={!!p.warnings.length}>
     <button className="permit-open" onClick={()=>actions.onOpen(work)} aria-label={`Abrir ${work.descripcion}`}>
       <span className="permit-top"><span className="permit-no">{p.number || 'SIN Nº · BORRADOR'}{p.numberPending&&<small className="reference-label">Número de referencia</small>}</span><StateTag status={work.estado}/></span>
@@ -30,7 +34,7 @@ export function WorkCard({ work, extensions, actions }: {work:Trabajo,extensions
       <span className="permit-bottom"><span><Calendar size={12}/>{shortDate(p.date)}{p.datePending?' · referencia':''}</span>{p.extensions.length>0&&<span className="extension-mark"><Files size={12}/>{p.extensions.length} ampl.</span>}</span>
     </button>
     <Warnings messages={p.warnings}/>
-    <div className="permit-actions"><StatusControl work={work} actions={actions}/>{extensionToOpen&&<button className="text-button" disabled={actions.busy} onClick={()=>actions.onExtend(work,extensionToOpen)}><History size={14}/>{p.warnings.length?'Completar ampliación':'Ver ampliación'}</button>}<button className="icon-button delete-icon" disabled={actions.busy} onClick={()=>actions.onDelete(work)} aria-label={`Eliminar ${work.descripcion}`}><Trash2 size={14}/></button></div>
+    <div className="permit-actions"><StatusControl work={work} actions={actions}/><label className="card-date-control">{dateLabel}<input aria-label={`${dateLabel} de ${work.descripcion}`} type="date" value={dateValue} disabled={actions.busy} onChange={e=>actions.onDate(work,dateTarget,e.target.value||null)}/></label>{extensionToOpen&&<button className="text-button" disabled={actions.busy} onClick={()=>actions.onExtend(work,extensionToOpen)}><History size={14}/>{p.warnings.length?'Completar ampliación':'Ver ampliación'}</button>}<button className="icon-button delete-icon" disabled={actions.busy} onClick={()=>actions.onDelete(work)} aria-label={`Eliminar ${work.descripcion}`}><Trash2 size={14}/></button></div>
   </article>
 }
 export function CalendarWeeks({ starts, today, records, extensions, actions }: {starts:string[],today:string,records:Trabajo[],extensions:Ampliacion[],actions:WorkActions}) {

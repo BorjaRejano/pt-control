@@ -119,6 +119,15 @@ describe('flujos completos con backend simulado solo en pruebas',()=>{
     cleanup();await showApp();expect(screen.queryByRole('button',{name:'Abrir Trabajo ficticio de prueba'})).toBeNull()
     fireEvent.click(screen.getByRole('button',{name:'Archivados',exact:true}));expect(screen.getByText('Trabajo ficticio de prueba')).toBeTruthy()
   })
+  it('actualiza la fecha vigente desde la tarjeta sin abrir el detalle',async()=>{
+    await showApp()
+    const date=addDays(localToday(),4)
+    fireEvent.change(screen.getByLabelText('Fecha programada de Trabajo ficticio de prueba'),{target:{value:date}})
+    await screen.findByRole('status')
+    expect(mock.records[0].fecha_programada).toBe(date)
+    expect(mock.writes.at(-1)).toMatchObject({table:'trabajos',op:'update',payload:{fecha_programada:date}})
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
   it('finalizar desde la ficha también archiva',async()=>{
     await showApp();fireEvent.click(screen.getByRole('button',{name:'Abrir Trabajo ficticio de prueba'}))
     fireEvent.change(screen.getByLabelText('Estado del permiso'),{target:{value:'finalizado'}});submit('Guardar trabajo')

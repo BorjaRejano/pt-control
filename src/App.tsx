@@ -101,6 +101,17 @@ export default function App() {
     },keepWork,message)
   }
   async function changeState(work:Trabajo,status:Status){await updateWork(work,stateChange(work,status),status==='finalizado'?'Trabajo finalizado y archivado':'Estado actualizado')}
+  async function changeDate(work:Trabajo,extension:Ampliacion|undefined,date:string|null){
+    if(extension){
+      await mutate(async()=>{
+        const {data,error:err}=await supabase!.from('ampliaciones').update({fecha_ampliacion:date}).eq('id',extension.id).eq('trabajo_id',work.id).select('*').single()
+        if(err||!data)throw err||new Error('No se pudo actualizar la ampliación.')
+        return data as Ampliacion
+      },data=>setExtensions(rows=>[data,...rows.filter(ex=>ex.id!==data.id)]),'Fecha de ampliación actualizada')
+      return
+    }
+    await updateWork(work,{fecha_programada:date},'Fecha programada actualizada')
+  }
   async function archiveWork(work:Trabajo){
     const archived=isArchived(work)
     const saved=await updateWork(work,archived?{archivado:false,...(work.estado==='finalizado'?{estado:'pendiente' as Status}:{})}:{archivado:true},archived?'Trabajo recuperado del archivo':'Trabajo archivado')
@@ -145,7 +156,7 @@ export default function App() {
   async function logout(){try{const {error:err}=await supabase!.auth.signOut({scope:'local'});if(err)throw err;setError('')}catch(err){setError(readableError(err))}}
   function download(content:string,type:string,filename:string){const url=URL.createObjectURL(new Blob([content],{type}));const a=document.createElement('a');a.href=url;a.download=filename;a.click();window.setTimeout(()=>URL.revokeObjectURL(url),1000)}
   function exportBackup(){download(JSON.stringify({format:'PT_CONTROL_v1',schema_version:3,exported_at:new Date().toISOString(),trabajos:records,ampliaciones:extensions,comentarios:comments,historial_cambios:history},null,2),'application/json',`PT_CONTROL_copia_${today}.json`)}
-  const actions:WorkActions={busy,onOpen:openWork,onState:(w,s)=>{void changeState(w,s)},onExtend:openExtension,onDelete:work=>{setError('');setDeleting(work)}}
+  const actions:WorkActions={busy,onOpen:openWork,onState:(w,s)=>{void changeState(w,s)},onDate:(w,e,date)=>{void changeDate(w,e,date)},onExtend:openExtension,onDelete:work=>{setError('');setDeleting(work)}}
   const cards=(works:Trabajo[],empty:string)=><div className="compact-cards">{works.length?works.map(work=><WorkCard key={work.id} work={work} extensions={extensions} actions={actions}/>):<p className="empty">{empty}</p>}</div>
 
   if(!configured)return <NoConfig/>

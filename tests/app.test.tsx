@@ -225,10 +225,11 @@ describe('flujos completos con backend simulado solo en pruebas',()=>{
     const week=isoWeek(localToday()),next=isoWeek(addDays(mondayOf(localToday()),7))
     expect(screen.getByRole('heading',{name:`Semana ${week.week} · ${week.year}`})).toBeTruthy();expect(screen.getByRole('heading',{name:`Semana ${next.week} · ${next.year}`})).toBeTruthy();visualSnapshot('calendario')
   })
-  it('permite editar desde la ficha y eliminar una ampliación desde su historial',async()=>{
+  it('permite editar con un clic en el indicador de ampliaciones y eliminar desde su historial',async()=>{
     mock.extensions=[extension()]
     await showApp()
-    fireEvent.click(screen.getByRole('button',{name:'Editar ampliación'}))
+    expect(screen.queryByRole('button',{name:'Editar ampliación'})).toBeNull()
+    fireEvent.click(screen.getByRole('button',{name:'Editar ampliaciones de Trabajo ficticio de prueba'}))
     expect(screen.getByRole('dialog',{name:'Editar ampliación'})).toBeTruthy()
     fireEvent.click(screen.getByRole('button',{name:'Cancelar',exact:true}))
     fireEvent.click(screen.getByRole('button',{name:'Abrir Trabajo ficticio de prueba'}))

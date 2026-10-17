@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { Activity, Archive, ArrowRight, Calendar, CalendarClock, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, Database, Download, LayoutDashboard, LogOut, Plus, RefreshCw, ShieldCheck, X } from 'lucide-react'
+import { Activity, Archive, ArrowRight, Calendar, CalendarClock, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, Database, Download, LayoutDashboard, LogOut, Plus, Redo2, RefreshCw, ShieldCheck, Undo2, X } from 'lucide-react'
 import { AuthScreen, NoConfig } from './AuthScreens'
 import { Brand } from './Brand'
 import { dashboard, addDays, localToday, mondayOf, permitInfo, defaultFilters, filterWorks, buildCsv, stateChange, isArchived, type WorkFilters } from './domain'
@@ -11,6 +11,9 @@ import { WorkDetail, ExtensionDialog, type WorkPayload } from './WorkDetail'
 import { Modal } from './Modal'
 
 type View='panel'|'calendario'|'registro'|'archivo'
+type Change = { undo:()=>Promise<boolean>, redo:()=>Promise<boolean> }
+const workSnapshot=(work:Trabajo):Pick<Trabajo,'descripcion'|'numero_permiso'|'fecha_programada'|'zona'|'empresa'|'estado'|'notas'|'archivado'>=>({descripcion:work.descripcion,numero_permiso:work.numero_permiso,fecha_programada:work.fecha_programada,zona:work.zona,empresa:work.empresa,estado:work.estado,notas:work.notas,archivado:work.archivado})
+const extensionSnapshot=(extension:Ampliacion)=>({numero_ampliacion:extension.numero_ampliacion,fecha_ampliacion:extension.fecha_ampliacion,observaciones:extension.observaciones})
 export default function App() {
   const [session,setSession]=useState<Session|null>(null)
   const [authChecked,setAuthChecked]=useState(false)
@@ -32,6 +35,8 @@ export default function App() {
   const [extensionDialog,setExtensionDialog]=useState<{work:Trabajo,extension?:Ampliacion}|null>(null)
   const [deletingExtension,setDeletingExtension]=useState<{work:Trabajo,extension:Ampliacion}|null>(null)
   const [deleting,setDeleting]=useState<Trabajo|null>(null)
+  const [undoChanges,setUndoChanges]=useState<Change[]>([])
+  const [redoChanges,setRedoChanges]=useState<Change[]>([])
   const version=useRef(0)
   const userRef=useRef(session?.user.id)
   const autoStartAttempt=useRef('')
@@ -56,7 +61,7 @@ export default function App() {
     finally{if(current===version.current)setLoading(false)}
   },[])
   useEffect(()=>{
-    setRecords([]);setExtensions([]);setComments([]);setHistory([]);setLoaded(false);setEditing(null);setExtensionDialog(null);setDeletingExtension(null);setDeleting(null);setToast('');setLoadError('')
+    setRecords([]);setExtensions([]);setComments([]);setHistory([]);setLoaded(false);setEditing(null);setExtensionDialog(null);setDeletingExtension(null);setDeleting(null);setUndoChanges([]);setRedoChanges([]);setToast('');setLoadError('')
     if(session?.user.id)void reload()
     return ()=>{++version.current}
   },[session?.user.id,reload])
@@ -114,25 +119,74 @@ export default function App() {
     }catch(err){if(userRef.current===owner)setError(readableError(err));return false}
     finally{setBusy(false)}
   }
+  function remember(change:Change){setUndoChanges(rows=>[...rows.slice(-19),change]);setRedoChanges([])}
+  async function restoreWork(work:Trabajo,message:string){return mutate(async()=>{
+    const {data,error:err}=await supabase!.from('trabajos').update(workSnapshot(work)).eq('id',work.id).select('*').single()
+    if(err||!data)throw err||new Error('No se pudo restaurar el permiso.')
+    return data as Trabajo
+  },keepWork,message)}
+  async function restoreExtension(extension:Ampliacion,message:string){return mutate(async()=>{
+    const {data,error:err}=await supabase!.from('ampliaciones').update(extensionSnapshot(extension)).eq('id',extension.id).eq('trabajo_id',extension.trabajo_id).select('*').single()
+    if(err||!data)throw err||new Error('No se pudo restaurar la ampliación.')
+    return data as Ampliacion
+  },data=>setExtensions(rows=>[data,...rows.filter(item=>item.id!==data.id)]),message)}
+  async function insertWork(work:Trabajo,message:string){return mutate(async()=>{
+    const {data,error:err}=await supabase!.from('trabajos').insert({id:work.id,...workSnapshot(work)}).select('*').single()
+    if(err||!data)throw err||new Error('No se pudo recuperar el permiso.')
+    return data as Trabajo
+  },keepWork,message)}
+  async function removeWork(work:Trabajo,message:string){return mutate(async()=>{
+    const {data,error:err}=await supabase!.from('trabajos').delete().eq('id',work.id).select('id').single()
+    if(err||!data)throw err||new Error('No se pudo eliminar el permiso.')
+    return work.id
+  },id=>setRecords(rows=>rows.filter(item=>item.id!==id)),message)}
+  async function insertExtension(extension:Ampliacion,message:string){return mutate(async()=>{
+    const {data,error:err}=await supabase!.from('ampliaciones').insert({id:extension.id,trabajo_id:extension.trabajo_id,...extensionSnapshot(extension)}).select('*').single()
+    if(err||!data)throw err||new Error('No se pudo recuperar la ampliación.')
+    return data as Ampliacion
+  },data=>setExtensions(rows=>[data,...rows.filter(item=>item.id!==data.id)]),message)}
+  async function removeExtension(extension:Ampliacion,message:string){return mutate(async()=>{
+    const {data,error:err}=await supabase!.from('ampliaciones').delete().eq('id',extension.id).eq('trabajo_id',extension.trabajo_id).select('id').single()
+    if(err||!data)throw err||new Error('No se pudo eliminar la ampliación.')
+    return extension.id
+  },id=>setExtensions(rows=>rows.filter(item=>item.id!==id)),message)}
+  async function undo(){
+    const change=undoChanges.at(-1)
+    if(!change||busy)return
+    if(await change.undo()){setUndoChanges(rows=>rows.slice(0,-1));setRedoChanges(rows=>[...rows,change])}
+  }
+  async function redo(){
+    const change=redoChanges.at(-1)
+    if(!change||busy)return
+    if(await change.redo()){setRedoChanges(rows=>rows.slice(0,-1));setUndoChanges(rows=>[...rows,change])}
+  }
   function keepWork(work:Trabajo){setRecords(rows=>rows.some(w=>w.id===work.id)?rows.map(w=>w.id===work.id?work:w):[work,...rows])}
   async function updateWork(work:Trabajo,patch:Partial<Trabajo>,message='Permiso actualizado'){
-    return mutate(async()=>{
+    let saved:Trabajo|undefined
+    const changed=await mutate(async()=>{
       const {data,error:err}=await supabase!.from('trabajos').update(patch).eq('id',work.id).select('*').single()
       if(err||!data)throw err||new Error('No se pudo actualizar el trabajo.')
       return data as Trabajo
-    },keepWork,message)
+    },data=>{saved=data;keepWork(data)},message)
+    if(changed&&saved)remember({undo:()=>restoreWork(work,'Cambio deshecho'),redo:()=>restoreWork(saved!,'Cambio rehecho')})
+    return changed
   }
   async function changeState(work:Trabajo,status:Status){await updateWork(work,stateChange(work,status),status==='finalizado'?'Trabajo finalizado y archivado':'Estado actualizado')}
+  async function updateExtension(work:Trabajo,extension:Ampliacion,patch:Partial<Pick<Ampliacion,'numero_ampliacion'|'fecha_ampliacion'|'observaciones'>>,message='Ampliación actualizada'){
+    let saved:Ampliacion|undefined
+    const changed=await mutate(async()=>{
+      const {data,error:err}=await supabase!.from('ampliaciones').update(patch).eq('id',extension.id).eq('trabajo_id',work.id).select('*').single()
+      if(err||!data)throw err||new Error('No se pudo actualizar la ampliación.')
+      return data as Ampliacion
+    },data=>{saved=data;setExtensions(rows=>[data,...rows.filter(ex=>ex.id!==data.id)])},message)
+    if(changed&&saved)remember({undo:()=>restoreExtension(extension,'Cambio deshecho'),redo:()=>restoreExtension(saved!,'Cambio rehecho')})
+    return changed
+  }
   async function changeDate(work:Trabajo,extension:Ampliacion|undefined,date:string|null){
     if(extension){
-      await mutate(async()=>{
-        const {data,error:err}=await supabase!.from('ampliaciones').update({fecha_ampliacion:date}).eq('id',extension.id).eq('trabajo_id',work.id).select('*').single()
-        if(err||!data)throw err||new Error('No se pudo actualizar la ampliación.')
-        return data as Ampliacion
-      },data=>setExtensions(rows=>[data,...rows.filter(ex=>ex.id!==data.id)]),'Fecha de ampliación actualizada')
-      return
+      return updateExtension(work,extension,{fecha_ampliacion:date},'Fecha de ampliación actualizada')
     }
-    await updateWork(work,{fecha_programada:date},'Fecha programada actualizada')
+    return updateWork(work,{fecha_programada:date},'Fecha programada actualizada')
   }
   async function archiveWork(work:Trabajo){
     const archived=isArchived(work)
@@ -140,23 +194,28 @@ export default function App() {
     if(saved)setEditing(null)
   }
   async function saveWork(payload:WorkPayload){
-    await mutate(async()=>{
+    const previous=selected
+    let saved:Trabajo|undefined
+    const changed=await mutate(async()=>{
       const patch={...payload,archivado:payload.estado==='finalizado'||!!selected?.archivado}
       const query=selected?supabase!.from('trabajos').update(patch).eq('id',selected.id):supabase!.from('trabajos').insert(patch)
       const {data,error:err}=await query.select('*').single()
       if(err||!data)throw err||new Error('No se pudo guardar el trabajo.')
       return data as Trabajo
-    },data=>{keepWork(data);setEditing(null)},payload.estado==='finalizado'?'Trabajo finalizado y archivado':'Trabajo guardado correctamente')
+    },data=>{saved=data;keepWork(data);setEditing(null)},payload.estado==='finalizado'?'Trabajo finalizado y archivado':'Trabajo guardado correctamente')
+    if(changed&&saved)remember(previous?{undo:()=>restoreWork(previous,'Cambio deshecho'),redo:()=>restoreWork(saved!,'Cambio rehecho')}:{undo:()=>removeWork(saved!,'Creación deshecha'),redo:()=>insertWork(saved!,'Creación rehecha')})
   }
   async function saveExtension(payload:{numero_ampliacion:string|null,fecha_ampliacion:string|null,observaciones:string|null}){
     if(!extensionDialog)return
     const target=extensionDialog
-    await mutate(async()=>{
+    let saved:Ampliacion|undefined
+    const changed=await mutate(async()=>{
       const query=target.extension?supabase!.from('ampliaciones').update(payload).eq('id',target.extension.id).eq('trabajo_id',target.work.id):supabase!.from('ampliaciones').insert({...payload,trabajo_id:target.work.id})
       const {data,error:err}=await query.select('*').single()
       if(err||!data)throw err||new Error('No se pudo guardar la ampliación.')
       return data as Ampliacion
-    },data=>{setExtensions(rows=>[data,...rows.filter(ex=>ex.id!==data.id)]);setExtensionDialog(null)},target.extension?'Ampliación actualizada':'Ampliación añadida')
+    },data=>{saved=data;setExtensions(rows=>[data,...rows.filter(ex=>ex.id!==data.id)]);setExtensionDialog(null)},target.extension?'Ampliación actualizada':'Ampliación añadida')
+    if(changed&&saved)remember(target.extension?{undo:()=>restoreExtension(target.extension!,'Cambio deshecho'),redo:()=>restoreExtension(saved!,'Cambio rehecho')}:{undo:()=>removeExtension(saved!,'Ampliación deshecha'),redo:()=>insertExtension(saved!,'Ampliación rehecha')})
   }
   async function deleteWork(){
     if(!deleting)return
@@ -170,11 +229,12 @@ export default function App() {
   async function deleteExtension(){
     if(!deletingExtension)return
     const target=deletingExtension
-    await mutate(async()=>{
+    const deleted=await mutate(async()=>{
       const {data,error:err}=await supabase!.from('ampliaciones').delete().eq('id',target.extension.id).eq('trabajo_id',target.work.id).select('id').single()
       if(err||!data)throw err||new Error('No se pudo eliminar la ampliación.')
       return target.extension.id
     },id=>{setExtensions(rows=>rows.filter(extension=>extension.id!==id));setDeletingExtension(null);if(extensionDialog?.extension?.id===id)setExtensionDialog(null)},'Ampliación eliminada')
+    if(deleted)remember({undo:()=>insertExtension(target.extension,'Eliminación deshecha'),redo:()=>removeExtension(target.extension,'Eliminación rehecha')})
   }
   async function addComment(id:string,contenido:string){
     return mutate(async()=>{
@@ -197,7 +257,7 @@ export default function App() {
   const summaryKpis=[{label:'Sin programar',count:panel.unplanned.length,color:'yellow',state:'sin_programar'}, {label:'Pendientes',count:panel.pending.length,color:'blue',state:'pendiente'}, {label:'Emitidos',count:panel.issued.length,color:'purple',state:'emitido'}, {label:'En ejecución',count:panel.executing.length,color:'green',state:'ejecucion'}, {label:'Finalizados',count:panel.finished.length,color:'gray',state:'finalizado'}] as const
   return <div className="app">
     <div inert={!!editing||!!extensionDialog||!!deletingExtension||!!deleting}>
-      <div className="app-navigation"><header className="topbar"><div className="top-main"><Brand compact/><div className="top-actions"><span className="today-label">{longDate(today)}</span><button className="primary" onClick={()=>openWork()}><Plus size={16}/> Nuevo trabajo</button><button className="icon-button inverted" disabled={busy} aria-label="Cerrar sesión" onClick={()=>void logout()}><LogOut size={18}/></button></div></div></header><div className="tabs-bar"><div className="navigation-content"><nav className="tabs" aria-label="Secciones">{nav.map(({id,name,icon:Icon})=><button key={id} className={`navtab ${view===id?'selected':''}`} onClick={()=>navigate(id)}><Icon size={17}/>{name}</button>)}</nav><div className="nav-kpis" aria-label="Resumen del panel diario">{summaryKpis.map(k=><button key={k.state} className={`nav-kpi ${k.color}`} onClick={()=>navigate(k.state==='finalizado'?'archivo':'registro',k.state)}><span>{k.label}</span><b>{k.count}</b></button>)}</div></div></div></div>
+      <div className="app-navigation"><header className="topbar"><div className="top-main"><Brand compact/><div className="top-actions"><span className="today-label">{longDate(today)}</span><button className="primary" onClick={()=>openWork()}><Plus size={16}/> Nuevo trabajo</button><button className="icon-button inverted" disabled={busy||!undoChanges.length} aria-label="Deshacer" title="Deshacer último cambio" onClick={()=>void undo()}><Undo2 size={18}/></button><button className="icon-button inverted" disabled={busy||!redoChanges.length} aria-label="Rehacer" title="Rehacer último cambio" onClick={()=>void redo()}><Redo2 size={18}/></button><button className="icon-button inverted" disabled={busy} aria-label="Cerrar sesión" title="Cerrar sesión" onClick={()=>void logout()}><LogOut size={18}/></button></div></div></header><div className="tabs-bar"><div className="navigation-content"><nav className="tabs" aria-label="Secciones">{nav.map(({id,name,icon:Icon})=><button key={id} className={`navtab ${view===id?'selected':''}`} onClick={()=>navigate(id)}><Icon size={17}/>{name}</button>)}</nav><div className="nav-kpis" aria-label="Resumen del panel diario">{summaryKpis.map(k=><button key={k.state} className={`nav-kpi ${k.color}`} onClick={()=>navigate(k.state==='finalizado'?'archivo':'registro',k.state)}><span>{k.label}</span><b>{k.count}</b></button>)}</div></div></div></div>
       <main className="main">
         {loadError&&<div className="alert error global-error" role="alert"><span>{loadError}</span><button disabled={loading} onClick={()=>void reload()}>Reintentar</button></div>}
         {error&&!editing&&!extensionDialog&&!deleting&&<div className="alert error global-error" role="alert"><span>{error}</span><button aria-label="Ocultar error" onClick={()=>setError('')}><X size={15}/></button></div>}
@@ -215,7 +275,7 @@ export default function App() {
         <footer><span><ShieldCheck size={14}/> Acceso privado · Datos almacenados en Supabase</span><span>PT CONTROL</span></footer>
       </main>
     </div>
-    {editing&&(editing.id==='new'||selected)&&<div inert={!!extensionDialog||!!deletingExtension||!!deleting}><WorkDetail key={editing.id} work={selected||null} planDate={editing.planDate} extensions={extensions} comments={comments} history={history} busy={busy} error={error} onClose={()=>{if(!busy)setEditing(null)}} onSave={saveWork} onExtend={openExtension} onDeleteExtension={actions.onDeleteExtension} onDelete={actions.onDelete} onArchive={archiveWork} onComment={addComment}/></div>}
+    {editing&&(editing.id==='new'||selected)&&<div inert={!!extensionDialog||!!deletingExtension||!!deleting}><WorkDetail key={editing.id} work={selected||null} planDate={editing.planDate} extensions={extensions} comments={comments} history={history} busy={busy} error={error} onClose={()=>{if(!busy)setEditing(null)}} onSave={saveWork} onSaveEffectiveExtension={updateExtension} onExtend={openExtension} onDeleteExtension={actions.onDeleteExtension} onDelete={actions.onDelete} onArchive={archiveWork} onComment={addComment}/></div>}
     {extensionDialog&&<div inert={!!deletingExtension||!!deleting}><ExtensionDialog key={extensionDialog.extension?.id||`new-${extensionDialog.work.id}`} work={extensionDialog.work} extensions={extensions} extension={extensionDialog.extension} busy={busy} error={error} onClose={()=>{if(!busy){setExtensionDialog(null);setError('')}}} onSave={saveExtension} onDelete={actions.onDeleteExtension}/></div>}
     {deletingExtension&&<Modal title="Eliminar ampliación" eyebrow={deletingExtension.extension.numero_ampliacion||'SIN NÚMERO'} busy={busy} onClose={()=>{if(!busy)setDeletingExtension(null)}} alert><div className="modal-body">{error&&<p className="alert error" role="alert">{error}</p>}<p>Vas a eliminar la ampliación de <strong>{deletingExtension.work.descripcion}</strong>.</p><p className="delete-explanation">El permiso volverá a mostrar su número y fecha anteriores. Esta acción no se puede deshacer.</p><div className="form-actions"><button className="secondary" disabled={busy} onClick={()=>setDeletingExtension(null)}>Cancelar</button><button className="danger-button" disabled={busy} onClick={()=>void deleteExtension()}>{busy?'Eliminando…':'Eliminar ampliación'}</button></div></div></Modal>}
     {deleting&&<Modal title="Eliminar permiso" eyebrow={permitInfo(deleting,extensions).number||'SIN NÚMERO'} busy={busy} onClose={()=>{if(!busy)setDeleting(null)}} alert><div className="modal-body">{error&&<p className="alert error" role="alert">{error}</p>}<p>Vas a eliminar definitivamente <strong>{deleting.descripcion}</strong>.</p><p className="delete-explanation">Se eliminarán el trabajo, sus ampliaciones, comentarios e historial. Esta acción no se puede deshacer.</p><div className="form-actions"><button className="secondary" disabled={busy} onClick={()=>setDeleting(null)}>Cancelar</button><button className="danger-button" disabled={busy} onClick={()=>void deleteWork()}>{busy?'Eliminando…':'Eliminar definitivamente'}</button></div></div></Modal>}

@@ -118,6 +118,10 @@ describe('flujos completos con backend simulado solo en pruebas',()=>{
     fireEvent.change(input,{target:{value:'Trabajo nuevo ficticio'}});visualSnapshot('formulario');submit('Guardar trabajo')
     await screen.findByRole('status')
     expect(mock.records.find(w=>w.descripcion==='Trabajo nuevo ficticio')).toMatchObject({numero_permiso:null,fecha_programada:null,estado:'pendiente',archivado:false})
+    fireEvent.click(screen.getByRole('button',{name:'Deshacer'}))
+    await waitFor(()=>expect(mock.records.find(w=>w.descripcion==='Trabajo nuevo ficticio')).toBeUndefined())
+    fireEvent.click(screen.getByRole('button',{name:'Rehacer'}))
+    await waitFor(()=>expect(mock.records.find(w=>w.descripcion==='Trabajo nuevo ficticio')).toBeTruthy())
   })
   it('no comunica éxito y conserva el formulario cuando falla un guardado',async()=>{
     await showApp();fireEvent.click(screen.getByRole('button',{name:'Nuevo trabajo'}))
@@ -132,6 +136,17 @@ describe('flujos completos con backend simulado solo en pruebas',()=>{
     cleanup();await showApp();expect(screen.queryByRole('button',{name:'Abrir Trabajo ficticio de prueba'})).toBeNull()
     fireEvent.click(screen.getByRole('button',{name:'Archivados',exact:true}));expect(screen.getByText('Trabajo ficticio de prueba')).toBeTruthy()
   })
+  it('deshace y rehace el último cambio guardado desde la barra superior',async()=>{
+    await showApp()
+    expect((screen.getByRole('button',{name:'Deshacer'}) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('button',{name:'Cerrar sesión'}).getAttribute('title')).toBe('Cerrar sesión')
+    fireEvent.change(screen.getByLabelText('Estado de Trabajo ficticio de prueba'),{target:{value:'ejecucion'}})
+    await screen.findByRole('status')
+    fireEvent.click(screen.getByRole('button',{name:'Deshacer'}))
+    await waitFor(()=>expect(mock.records[0].estado).toBe('pendiente'))
+    fireEvent.click(screen.getByRole('button',{name:'Rehacer'}))
+    await waitFor(()=>expect(mock.records[0].estado).toBe('ejecucion'))
+  })
   it('actualiza la fecha vigente desde la tarjeta sin abrir el detalle',async()=>{
     await showApp()
     const date=addDays(localToday(),4)
@@ -143,6 +158,14 @@ describe('flujos completos con backend simulado solo en pruebas',()=>{
     expect(mock.records[0].fecha_programada).toBe(date)
     expect(mock.writes.at(-1)).toMatchObject({table:'trabajos',op:'update',payload:{fecha_programada:date}})
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+  it('actualiza la fecha vigente de una ampliación desde el detalle del trabajo',async()=>{
+    const previous=addDays(localToday(),2),next=addDays(localToday(),3)
+    mock.extensions=[extension({fecha_ampliacion:previous})]
+    await showApp();fireEvent.click(screen.getByRole('button',{name:'Abrir Trabajo ficticio de prueba'}))
+    fireEvent.change(screen.getByLabelText('Fecha de ampliación vigente'),{target:{value:next}});submit('Guardar trabajo')
+    await waitFor(()=>expect(mock.extensions[0].fecha_ampliacion).toBe(next))
+    expect(mock.records[0].fecha_programada).toBeNull()
   })
   it('reprograma un permiso al arrastrar su ficha a otro día del calendario',async()=>{
     const today=localToday(),tomorrow=addDays(today,1)
@@ -212,6 +235,14 @@ describe('flujos completos con backend simulado solo en pruebas',()=>{
     await waitFor(()=>expect(screen.queryByText('Falta número de permiso ampliado')).toBeNull())
     expect(mock.extensions).toHaveLength(1);expect(mock.records[0].numero_permiso).toBe('FICTICIO-ORIGINAL');expect(mock.records[0].estado).toBe('ejecucion')
     expect(mock.writes.filter(w=>w.table==='ampliaciones').map(w=>w.op)).toEqual(['insert','update'])
+  })
+  it('deshace y rehace una ampliación recién creada',async()=>{
+    await showApp();fireEvent.change(screen.getByLabelText('Estado de Trabajo ficticio de prueba'),{target:{value:'ampliar'}});submit('Añadir ampliación')
+    await waitFor(()=>expect(mock.extensions).toHaveLength(1))
+    fireEvent.click(screen.getByRole('button',{name:'Deshacer'}))
+    await waitFor(()=>expect(mock.extensions).toHaveLength(0))
+    fireEvent.click(screen.getByRole('button',{name:'Rehacer'}))
+    await waitFor(()=>expect(mock.extensions).toHaveLength(1))
   })
   it('muestra la ampliación actual en tarjeta, ficha, registro, calendario y CSV',async()=>{
     mock.extensions=[extension(),extension({id:'amp-2',numero_ampliacion:'AMP-ACTUAL',created_at:`${localToday()}T09:00:00Z`})]

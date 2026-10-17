@@ -1,6 +1,6 @@
 # PT CONTROL · Versión 1.0
 
-**Revisión del 16 de octubre:** consulta [MEJORAS_LOCALES.md](MEJORAS_LOCALES.md) y [VALIDACION_003.md](VALIDACION_003.md). Incluye ampliaciones pendientes/editables, archivado y eliminación. Las ampliaciones y el borrado se han comprobado desde la app local contra Supabase. Para otras instalaciones se requiere la migración `003_planificacion_ampliaciones.sql`.
+**Revisión del 17 de octubre:** incluye ampliaciones pendientes/editables, archivado y eliminación de ampliaciones individuales. Para otras instalaciones se requieren las migraciones hasta `004_eliminar_ampliaciones.sql`.
 
 Aplicación personal de seguimiento de trabajos y permisos industriales. Interfaz en español (panel diario, calendario semanal, registro filtrable, archivo), acceso protegido y datos reales en PostgreSQL/Supabase. Cada instalación necesita su propio proyecto Supabase y usuario; las credenciales locales y los registros no se incluyen en este repositorio.
 
@@ -27,7 +27,7 @@ Repositorio: [BorjaRejano/pt-control](https://github.com/BorjaRejano/pt-control)
 > **Importante:** antes de usar información de tu empresa, confirma que está autorizado almacenarla en una nube externa. Para las primeras pruebas utiliza únicamente permisos ficticios.
 
 1. Crea un proyecto en [https://supabase.com/dashboard](https://supabase.com/dashboard). Conserva la contraseña administrativa fuera del repositorio.
-2. Dentro del proyecto, entra en **SQL Editor → New query**. Ejecuta `supabase/migrations/001_pt_control.sql` **una sola vez** y después `supabase/migrations/002_integridad_historial.sql` y `supabase/migrations/003_planificacion_ampliaciones.sql`. Se crean 4 tablas, índices, triggers de historial y políticas de seguridad. Si ya aplicaste `001`, ejecuta únicamente las migraciones posteriores que falten, en orden. No vuelvas a ejecutar `001` sobre una instalación existente.
+2. Dentro del proyecto, entra en **SQL Editor → New query**. Ejecuta `supabase/migrations/001_pt_control.sql` **una sola vez** y después las migraciones `002`, `003` y `004` en orden. Se crean 4 tablas, índices, triggers de historial y políticas de seguridad. Si ya aplicaste `001`, ejecuta únicamente las migraciones posteriores que falten, en orden. No vuelvas a ejecutar `001` sobre una instalación existente.
 3. En **Authentication → Users → Add user**, crea tu único usuario manualmente, con correo y contraseña si aparece la opción **Create new user**. Confirma el email según la configuración del proyecto. Si el panel solo ofrece invitaciones, sigue el procedimiento de invitación y definición de contraseña en la interfaz oficial de Supabase (puede requerir configurar URLs de redirección).
 4. En **Authentication** configura **Allow new users to sign up = OFF** y mantén desactivados los accesos anónimos. El proyecto de ejemplo no ofrece botón de registro. Al desactivar nuevos registros solo se permiten cuentas ya existentes.
 5. En **Project Settings → API Keys** copia la **publishable key** (`sb_publishable_...`). Si tu proyecto únicamente ofrece una clave pública heredada `anon`, también sirve. **Nunca utilices la clave `service_role` o `secret` en esta web.** Copia asimismo la URL del proyecto (Project URL).

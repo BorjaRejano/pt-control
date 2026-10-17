@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { PGlite } from '@electric-sql/pglite'
 
-test('migraciones 001–003, ampliaciones pendientes, archivado y borrado seguro con RLS',async()=>{
+test('migraciones 001–004, ampliaciones pendientes, archivado y borrado seguro con RLS',async()=>{
   const db=new PGlite()
   const a='00000000-0000-4000-8000-000000000001',b='00000000-0000-4000-8000-000000000002'
   const migration=async(name:string)=>db.exec((await readFile(new URL(`../supabase/migrations/${name}`,import.meta.url),'utf8')).replace('create extension if not exists pgcrypto;',''))
@@ -20,6 +20,7 @@ test('migraciones 001–003, ampliaciones pendientes, archivado y borrado seguro
     await migration('003_planificacion_ampliaciones.sql')
     // La migración admite volver a aplicarse sin perder datos ni duplicar políticas.
     await migration('003_planificacion_ampliaciones.sql')
+    await migration('004_eliminar_ampliaciones.sql')
     await db.exec(`set role authenticated;set "request.jwt.claim.sub"='${a}';`)
     assert.equal((await db.query<{archivado:boolean}>('select archivado from trabajos where id=$1',[oldFinal])).rows[0].archivado,true)
     assert.equal((await db.query('select id from trabajos where id=$1',[id])).rows.length,1)
@@ -29,6 +30,8 @@ test('migraciones 001–003, ampliaciones pendientes, archivado y borrado seguro
     await db.query("update ampliaciones set numero_ampliacion='AMP-1',fecha_ampliacion='2026-10-19' where id=$1",[ext.id])
     assert.equal((await db.query('select * from ampliaciones where trabajo_id=$1',[id])).rows.length,1)
     await db.query("insert into ampliaciones(trabajo_id,numero_ampliacion,fecha_ampliacion) values($1,'AMP-2','2026-10-20')",[id])
+    const deletable=(await db.query<{id:string}>("insert into ampliaciones(trabajo_id,numero_ampliacion,fecha_ampliacion) values($1,'AMP-3','2026-10-21') returning id",[id])).rows[0]
+    assert.equal((await db.query('delete from ampliaciones where id=$1 returning id',[deletable.id])).rows.length,1)
     await db.query("insert into comentarios(trabajo_id,contenido) values($1,'Comentario ficticio')",[id])
     await db.query("update trabajos set estado='finalizado',fecha_programada='2026-10-16',archivado=false where id=$1",[id])
     assert.equal((await db.query<{archivado:boolean}>('select archivado from trabajos where id=$1',[id])).rows[0].archivado,true)

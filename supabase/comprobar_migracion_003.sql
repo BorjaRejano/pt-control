@@ -31,4 +31,11 @@ select '09_politica_eliminar', exists (
   select 1 from pg_policies where schemaname = 'public' and tablename = 'trabajos'
     and policyname = 'eliminar trabajos propios' and cmd = 'DELETE'
 )::text, 'true'
+union all
+select '10_permiso_eliminar_ampliaciones', has_table_privilege('authenticated', 'public.ampliaciones', 'DELETE')::text, 'true'
+union all
+select '11_politica_eliminar_ampliaciones', exists (
+  select 1 from pg_policies where schemaname = 'public' and tablename = 'ampliaciones'
+    and policyname = 'eliminar ampliaciones propias' and cmd = 'DELETE'
+)::text, 'true'
 order by comprobacion;

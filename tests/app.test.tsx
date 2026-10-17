@@ -231,6 +231,7 @@ describe('flujos completos con backend simulado solo en pruebas',()=>{
     expect(screen.queryByRole('button',{name:'Editar ampliación'})).toBeNull()
     fireEvent.click(screen.getByRole('button',{name:'Editar ampliaciones de Trabajo ficticio de prueba'}))
     expect(screen.getByRole('dialog',{name:'Editar ampliación'})).toBeTruthy()
+    expect(within(screen.getByRole('dialog',{name:'Editar ampliación'})).getByRole('button',{name:'Eliminar ampliación'})).toBeTruthy()
     fireEvent.click(screen.getByRole('button',{name:'Cancelar',exact:true}))
     fireEvent.click(screen.getByRole('button',{name:'Abrir Trabajo ficticio de prueba'}))
     fireEvent.click(screen.getByRole('button',{name:/Ver historial de ampliaciones/}))
